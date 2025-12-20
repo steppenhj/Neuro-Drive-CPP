@@ -3,139 +3,83 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Neuro-Driver RC</title>
-
+    <title>Neuro-Drive Control</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
     <style>
-        /* 1. 전체 페이지에서 터치 동작 제어 */
         body {
             background-color: #222;
             color: white;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
             font-family: Arial, sans-serif;
-            
-            /* 드래그, 텍스트 선택, 꾹 누르기 메뉴 완벽 차단 */
-            -webkit-touch-callout: none; /* iOS 꾹 누를 때 돋보기/메뉴 금지 */
-            -webkit-user-select: none;   /* 크롬/사파리 텍스트 선택 금지 */
-            -khtml-user-select: none;
-            -moz-user-select: none;      /* 파이어폭스 */
-            -ms-user-select: none;       /* IE/엣지 */
-            user-select: none;           /* 표준 */
-            touch-action: none;          /* 확대/축소/스크롤 금지 (게임처럼) */
-            
-            /* 화면 꽉 차게 */
-            height: 100vh;
-            margin: 0;
-            overflow: hidden; /* 스크롤바 숨김 */
+            text-align: center;
+            overflow: hidden; /* 스크롤 방지 */
+            touch-action: none; /* 터치 확대/축소 방지 */
         }
-
-        h2 { margin-top: 20px; pointer-events: none; /* 제목 터치 무시 */ }
-        #status { margin-bottom: 20px; font-weight: bold; color: #00ff00; }
-
-        .control-grid {
-            display: grid;
-            grid-template-columns: 80px 80px 80px;
-            grid-template-rows: 80px 80px;
-            gap: 15px;
-            margin-top: 30px;
+        #zone_joystick {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 300px;
+            height: 300px;
+            transform: translate(-50%, -50%); /* 정중앙 배치 */
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
         }
-
-        button {
-            width: 80px;
-            height: 80px;
-            font-size: 30px;
-            border-radius: 15px;
-            border: 2px solid #555;
-            background-color: #444;
-            color: white;
-            cursor: pointer;
-            
-            /* 버튼 내부에서도 선택 방지 이중 잠금 */
-            -webkit-touch-callout: none;
-            -webkit-user-select: none;
-            user-select: none;
-            
-            /* 그림자 효과 */
-            box-shadow: 0 6px #111;
-            transition: all 0.1s;
+        #debug {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #0f0;
+            font-size: 14px;
         }
-
-        /* 버튼 눌렀을 때 (PC/모바일 공통) */
-        button:active {
-            background-color: #ffcc00;
-            color: black;
-            box-shadow: 0 2px #000;
-            transform: translateY(4px);
-        }
-
-        /* 빈 공간 */
-        .empty { visibility: hidden; }
     </style>
 </head>
-
 <body>
-    <h2>RC Controller</h2>
-    <div id="status">Ready</div>
-
-    <div class="control-grid">
-        <div class="empty"></div>
-        <button id="btn-fwd">▲</button>
-        <div class="empty"></div>
-
-        <button id="btn-left">◀</button>
-        <button id="btn-back">▼</button>
-        <button id="btn-right">▶</button>
-    </div>
+    <div id="debug">Ready...</div>
+    <div id="zone_joystick"></div>
 
     <script>
-        // 버튼 ID와 명령 매핑
-        const buttons = {
-            'btn-fwd': 'FORWARD',
-            'btn-back': 'BACKWARD',
-            'btn-left': 'LEFT',
-            'btn-right': 'RIGHT'
+        // 1. 조이스틱 생성
+        var options = {
+            zone: document.getElementById('zone_joystick'),
+            mode: 'static',
+            position: {left: '50%', top: '50%'},
+            color: 'white',
+            size: 150
         };
+        var manager = nipplejs.create(options);
 
-        const statusDiv = document.getElementById('status');
+        // 2. 쓰로틀링을 위한 변수 (과도한 요청 방지)
+        let lastSentTime = 0;
+        const SEND_INTERVAL = 100; // 0.1초마다 전송
 
-        // 서버 전송 함수
-        function sendCommand(cmd) {
-            statusDiv.innerText = "MOVE: " + cmd;
+        // 3. 조이스틱 움직임 이벤트 감지
+        manager.on('move', function (evt, data) {
+            const now = Date.now();
+            if (now - lastSentTime > SEND_INTERVAL) {
+                // 데이터 추출 (vector: {x: -1~1, y: -1~1})
+                if (data.vector) {
+                    sendJoystickData(data.vector.x, data.vector.y);
+                    lastSentTime = now;
+                }
+            }
+        });
+
+        // 4. 조이스틱 놓았을 때 (정지)
+        manager.on('end', function () {
+            sendJoystickData(0, 0); // (0,0) 전송하여 정지
+        });
+
+        function sendJoystickData(x, y) {
+            // 화면에 디버그 정보 표시
+            document.getElementById('debug').innerText = 
+                `X: ${x.toFixed(2)}, Y: ${y.toFixed(2)}`;
+
             fetch('/control', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: 'direction=' + cmd
-            }).catch(err => console.log(err)); // 에러 무시 (빠른 반응 위해)
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ x: x, y: y })
+            }).catch(console.error);
         }
-
-        // 이벤트 리스너 등록 (HTML 태그보다 깔끔하고 강력함)
-        for (const [id, cmd] of Object.entries(buttons)) {
-            const btn = document.getElementById(id);
-
-            // 1. 터치 시작 (누름)
-            btn.addEventListener('touchstart', (e) => {
-                e.preventDefault(); // ★ 핵심: 브라우저가 "확대/메뉴" 하려는 걸 막음
-                sendCommand(cmd);
-                btn.style.backgroundColor = "#ffcc00"; // 즉각 반응용 색상 변경
-                btn.style.color = "black";
-                btn.style.transform = "translateY(4px)";
-                btn.style.boxShadow = "0 2px #000";
-            }, { passive: false });
-
-            // 2. 터치 끝 (뗌)
-            btn.addEventListener('touchend', (e) => {
-                e.preventDefault();
-                sendCommand('STOP');
-                btn.style.backgroundColor = "#444"; // 색상 복구
-                btn.style.color = "white";
-                btn.style.transform = "translateY(0)";
-                btn.style.boxShadow = "0 6px #111";
-            }, { passive: false });
-        }
-
-        // 화면 꾹 눌렀을 때 우클릭 메뉴 뜨는 것 방지 (화면 전체)
-        document.addEventListener('contextmenu', event => event.preventDefault());
     </script>
 </body>
 </html>
