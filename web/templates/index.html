@@ -4,82 +4,173 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Neuro-Drive Control</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
     <style>
         body {
-            background-color: #222;
+            margin: 0;
+            padding: 0;
+            background-color: #111;
             color: white;
-            font-family: Arial, sans-serif;
-            text-align: center;
+            font-family: 'Consolas', monospace;
             overflow: hidden; /* 스크롤 방지 */
             touch-action: none; /* 터치 확대/축소 방지 */
         }
+        /* 배경 영상 (나중에 Flask 스트리밍 주소 연결) */
+        #video_feed{
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: -1;
+            opacity: 0.5;
+        }
+
         #zone_joystick {
             position: absolute;
-            top: 50%;
+            top: 60%;
             left: 50%;
             width: 300px;
             height: 300px;
             transform: translate(-50%, -50%); /* 정중앙 배치 */
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 50%;
         }
-        #debug {
+
+        /* 상태 표시줄*/
+        #hud {
             position: absolute;
             top: 10px;
             left: 10px;
-            color: #0f0;
-            font-size: 14px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            pointer-events: none;
+        }
+        .status-dot{
+            height: 10px;
+            width: 10px;
+            background-color: red;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        
+        /* 속도 제한 슬라이더*/
+        #settings{
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            text-align: right;
         }
     </style>
 </head>
 <body>
-    <div id="debug">Ready...</div>
+    
+    <img id="video_feed" src="https://via.placeholder.com/640x480?text=No+Signal" alt="Video Stream">
+
+    <!-- Head-Up Display -->
+    <div id="hud">
+        <div><span id="conn_status" class="status-dot"></span> <span id="conn_text">Disconnected</span></div>
+        <div id="debug">Wait...</div>
+        <div style="font-size: 12px; color: #aaa;">Latency: <span id="latency">0</span>ms</div>
+    </div>
+
+    <div id="settings">
+        <label>Max Speed: <span id="speed_val">50</span>%</label><br>
+        <input type="range" id="max_speed" min="0" max="100" value="50" oninput="document.getElementById('speed_val').innerText=this.value">
+    </div>
+
     <div id="zone_joystick"></div>
 
     <script>
-        // 1. 조이스틱 생성
-        var options = {
+        // WebSocket 연결
+        const socket = io();
+        let lastSentTime = 0;
+        const SEND_INTERVAL = 100; // 10Hz 전송
+
+        // 모니터링 (연결 상태)
+        socket.on('connect', () => {
+            document.getElementById('conn_status').style.backgroundColor = "lime";
+            document.getElementById('conn_text').innerText = "Connected";
+            console.log("Server Connected");
+        })
+
+        socket.on('disconnect', () => {
+            document.getElementById('conn_status').style.backgroundColor = "red";
+            document.getElementById('conn_text').innerText = "Disconnected";
+            console.log("Server Disconnected");
+        })
+
+        // 핑 체트 (서버가 pong 보내줘야함 - 추후 구현)
+        setInterval(() => {
+            const start = Date.now();
+            socket.emit('ping', () => {
+                const ms = Date.now() - start;
+                document.getElementById('latency').innerText = ms;
+            });
+        }, 1000);
+
+        // 조이스틱 설정
+        var manager = nipplejs.create({
             zone: document.getElementById('zone_joystick'),
             mode: 'static',
             position: {left: '50%', top: '50%'},
-            color: 'white',
+            color: 'cyan',
             size: 150
-        };
-        var manager = nipplejs.create(options);
+        });
 
-        // 2. 쓰로틀링을 위한 변수 (과도한 요청 방지)
-        let lastSentTime = 0;
-        const SEND_INTERVAL = 100; // 0.1초마다 전송
+        // 현재 조이스틱 데이터를 저장할 변수 ; 이게 없으면 꾹 눌렀을 때 아무 변화가 없음.
+        let currentData = { throttle: 0, steering: 0 };
+        let isTouching = false;
 
-        // 3. 조이스틱 움직임 이벤트 감지
+        // 1. 움직임이 감지되면 '데이터값만' 갱신 (전송 안 함)
         manager.on('move', function (evt, data) {
-            const now = Date.now();
-            if (now - lastSentTime > SEND_INTERVAL) {
-                // 데이터 추출 (vector: {x: -1~1, y: -1~1})
-                if (data.vector) {
-                    sendJoystickData(data.vector.x, data.vector.y);
-                    lastSentTime = now;
-                }
+            if (data.vector){
+                currentData.throttle = data.vector.y;
+                currentData.steering = data.vector.x;
+                isTouching = true;
             }
         });
 
-        // 4. 조이스틱 놓았을 때 (정지)
-        manager.on('end', function () {
-            sendJoystickData(0, 0); // (0,0) 전송하여 정지
-        });
+        // 2. 손을 떼면 데이터 초기화 및 즉시 정지 신호 전송
+        manager.on('end', function() {
+            currentData.throttle = 0;
+            currentData.steering = 0;
+            isTouching = false;
+            sendData(0, 0);
+        })
 
-        function sendJoystickData(x, y) {
-            // 화면에 디버그 정보 표시
+        // 3. 0.1초마다 무조건 현재 상태를 서버로 전송 (Heartbeat으로 보면 됨)
+        setInterval(() => {
+            if(isTouching){
+                sendData(currentData.throttle, currentData.steering);
+            }
+        }, 100);
+
+        function sendData(throttleRaw, steeringRaw){
+            // 최대 속도 제한 적용
+            const limit = document.getElementById('max_speed').value / 100;
+
+            // throttleRaw는 보통 -1 ~ 1 사이. 여기에 제한을 곱함
+            // steeringRaw는 -1 ~ 1.
+
+            const payload = {
+                throttle: (throttleRaw * limit).toFixed(2),
+                steering: steeringRaw.toFixed(2)
+            };
+
             document.getElementById('debug').innerText = 
-                `X: ${x.toFixed(2)}, Y: ${y.toFixed(2)}`;
-
-            fetch('/control', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ x: x, y: y })
-            }).catch(console.error);
+                `T: ${payload.throttle} | S: ${payload.steering}`;
+            
+            // WebSocket emit 사용
+            socket.emit('control_command', payload);
+        
         }
+        
     </script>
 </body>
 </html>
