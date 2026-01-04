@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Neuro-Drive GCS (Ground Control Station)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    
+    <style>
+        /* [디자인 테마] 방산/전술 시스템 느낌의 다크 모드 */
+        body {
+            background-color: #0d0d0d;
+            color: #00ff41; /* 해커/매트릭스 그린 */
+            font-family: 'Segoe UI', Consolas, monospace;
+            margin: 0;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        /* 레이아웃: 3단 구성 (왼쪽-중앙-오른쪽) */
+        .container {
+            display: grid;
+            grid-template-columns: 250px 1fr 250px;
+            gap: 20px;
+            height: 95vh;
+        }
+
+        .panel {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 5px;
+            padding: 15px;
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.1);
+        }
+
+        h2 { margin-top: 0; font-size: 18px; border-bottom: 1px solid #333; padding-bottom: 5px; }
+        
+        /* 중앙 비디오 영역 */
+        #video-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border: 2px solid #00ff41;
+        }
+        #video-feed {
+            max-width: 100%;
+            max-height: 100%;
+        }
+        /* 조준점 (Crosshair) - 방산 느낌 */
+        .crosshair {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 40px; height: 40px;
+            border: 2px solid rgba(255, 0, 0, 0.5);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        .crosshair::after {
+            content: ''; position: absolute;
+            top: 50%; left: 50%; width: 4px; height: 4px;
+            background: red; transform: translate(-50%, -50%);
+        }
+
+        /* 데이터 텍스트 스타일 */
+        .data-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px; }
+        .value { font-weight: bold; color: #fff; }
+
+        /* 핸들 시각화 */
+        #steering-wheel {
+            width: 80px; height: 80px;
+            border: 4px solid #555;
+            border-radius: 50%;
+            margin: 20px auto;
+            position: relative;
+            transition: transform 0.1s; /* 부드러운 회전 */
+        }
+        #steering-wheel::after { /* 핸들 상단 표시 */
+            content: ''; position: absolute;
+            top: 0; left: 50%; width: 4px; height: 20px;
+            background: red; transform: translateX(-50%);
+        }
+
+        /* 상태 LED */
+        .status-led {
+            width: 12px; height: 12px;
+            background-color: #333;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .led-on { background-color: #00ff41; box-shadow: 0 0 5px #00ff41; }
+        .led-err { background-color: #ff0000; box-shadow: 0 0 5px #ff0000; }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    
+    <div class="panel">
+        <h2>VEHICLE STATUS</h2>
+        <div class="data-row">
+            <span>Connection</span>
+            <span id="conn-status" class="status-led"></span>
+        </div>
+        <div class="data-row">
+            <span>Mode</span>
+            <span id="drive-mode" class="value" style="color:cyan">MANUAL</span>
+        </div>
+        <div class="data-row">
+            <span>Battery</span>
+            <span class="value">11.4 V</span> </div>
+        <div class="data-row">
+            <span>CPU Temp</span>
+            <span class="value">42°C</span> </div>
+        <div class="data-row">
+            <span>Latency</span>
+            <span id="latency" class="value">0 ms</span>
+        </div>
+
+        <hr style="border-color:#333">
+        
+        <div style="text-align: center;">STEERING FEEDBACK</div>
+        <div id="steering-wheel"></div>
+        <div style="text-align: center; color: #fff;" id="steering-val">0°</div>
+    </div>
+
+    <div class="panel" style="padding: 0; border: none; overflow: hidden;">
+        <div id="video-container">
+            <img id="video-feed" src="https://via.placeholder.com/800x600?text=NO+SIGNAL" alt="Camera Feed">
+            <div class="crosshair"></div>
+            <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px;">
+                CAM 01: FRONT_WIDE
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>TELEMETRY</h2>
+        <div class="data-row">
+            <span>Throttle Input</span>
+            <span id="throttle-val" class="value">0%</span>
+        </div>
+        <div class="data-row">
+            <span>Speed (Est.)</span>
+            <span id="speed-val" class="value">0.0 m/s</span>
+        </div>
+        
+        <canvas id="speedChart" width="200" height="150" style="margin-top: 20px;"></canvas>
+    </div>
+
+</div>
+
+<script>
+    const socket = io();
+
+    // 1. 차트 설정 (Chart.js)
+    const ctx = document.getElementById('speedChart').getContext('2d');
+    const speedChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: Array(20).fill(''), // X축 (시간)
+            datasets: [{
+                label: 'Speed (m/s)',
+                data: Array(20).fill(0),
+                borderColor: '#00ff41',
+                borderWidth: 1,
+                tension: 0.4, // 부드러운 곡선
+                pointRadius: 0
+            }]
+        },
+        options: {
+            scales: {
+                y: { beginAtZero: true, max: 1.0, grid: { color: '#333' } },
+                x: { display: false }
+            },
+            plugins: { legend: { display: false } },
+            animation: false // 실시간 성능 위해 애니메이션 끄기
+        }
+    });
+
+    // 2. 소켓 데이터 수신 (서버 -> 관제센터)
+    // Python에서 socketio.emit('car_status', data)를 보내줘야 함
+    socket.on('car_status', (data) => {
+        // 데이터 예시: { throttle: 0.5, steering: -0.2, rpm: 120 }
+        
+        // 텍스트 업데이트
+        document.getElementById('throttle-val').innerText = (data.throttle * 100).toFixed(0) + '%';
+        document.getElementById('steering-val').innerText = (data.steering * 100).toFixed(0) + '%';
+        
+        // 핸들 그래픽 회전 (steering 값 -1 ~ 1을 -90도 ~ 90도로 변환)
+        const rotation = data.steering * 90; 
+        document.getElementById('steering-wheel').style.transform = `rotate(${rotation}deg)`;
+
+        // 차트 업데이트 (오른쪽에서 왼쪽으로 흐르게)
+        speedChart.data.datasets[0].data.push(Math.abs(data.throttle)); // 지금은 throttle로 속도 흉내
+        speedChart.data.datasets[0].data.shift(); // 맨 앞 데이터 삭제
+        speedChart.update();
+    });
+
+    // 연결 상태 관리
+    socket.on('connect', () => {
+        document.getElementById('conn-status').classList.add('led-on');
+        document.getElementById('conn-status').classList.remove('led-err');
+    });
+    socket.on('disconnect', () => {
+        document.getElementById('conn-status').classList.remove('led-on');
+        document.getElementById('conn-status').classList.add('led-err');
+    });
+
+    // Latency 체크
+    setInterval(() => {
+        const start = Date.now();
+        socket.emit('ping', () => {
+            document.getElementById('latency').innerText = (Date.now() - start) + " ms";
+        });
+    }, 1000);
+
+</script>
+</body>
+</html>

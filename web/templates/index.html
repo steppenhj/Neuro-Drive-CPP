@@ -80,8 +80,8 @@
     </div>
 
     <div id="settings">
-        <label>Max Speed: <span id="speed_val">50</span>%</label><br>
-        <input type="range" id="max_speed" min="0" max="100" value="50" oninput="document.getElementById('speed_val').innerText=this.value">
+        <label>Max Speed: <span id="speed_val">30</span>%</label><br>
+        <input type="range" id="max_speed" min="0" max="100" value="30" oninput="document.getElementById('speed_val').innerText=this.value">
     </div>
 
     <div id="zone_joystick"></div>
@@ -155,7 +155,8 @@
             // 최대 속도 제한 적용
             const limit = document.getElementById('max_speed').value / 100;
 
-            // throttleRaw는 보통 -1 ~ 1 사이. 여기에 제한을 곱함
+            // throttleRaw는 보통 -1 ~ 1 사이. 여기에 limit을 곱함(우선 테스트에서 30%로 시작해봄)
+
             // steeringRaw는 -1 ~ 1.
 
             const payload = {
