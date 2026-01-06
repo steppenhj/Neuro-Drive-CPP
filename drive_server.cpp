@@ -1,4 +1,4 @@
-// drive_server.cpp
+// drive_server_safe.cpp
 #include <iostream>
 #include <fcntl.h>
 #include <unistd.h>
@@ -12,16 +12,18 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <cstring>
+#include <cerrno> // 에러 코드 확인용 추가
 
 // --- 설정 ---
 #define PCA9685_ADDR 0x40
 #define CHIP_PATH "/dev/gpiochip4"
 #define SERVO_PIN 18
 #define UDP_PORT 8080
+#define TIMEOUT_US 500000 // 0.5초 (500ms) 타임아웃 설정
 
 using namespace std;
 
-// --- 1. DC 모터 드라이버 (기존 코드 유지) ---
+// --- 1. DC 모터 드라이버 (기존 유지) ---
 class MotorDriver {
 private:
     int file;
@@ -83,15 +85,24 @@ public:
         setPWM(5, 0, pwm_val);
     }
 
-    ~MotorDriver() { close(file); }
+    // 비상 정지용 함수 추가
+    void stopAll() {
+        setMotorA(0);
+        setMotorB(0);
+    }
+
+    ~MotorDriver() { 
+        stopAll();
+        close(file); 
+    }
 };
 
-// --- 2. 서보 모터 드라이버 (쓰레드 방식) ---
+// --- 2. 서보 모터 드라이버 (기존 유지) ---
 class ServoDriver {
 private:
     struct gpiod_chip *chip;
     struct gpiod_line_request *request;
-    atomic<int> current_angle; // 쓰레드 공유 변수
+    atomic<int> current_angle;
     atomic<bool> running;
     thread pwm_thread;
 
@@ -122,11 +133,8 @@ public:
         gpiod_request_config_set_consumer(req_cfg, "servo_driver");
         
         request = gpiod_chip_request_lines(chip, req_cfg, line_cfg);
-        
-        // PWM 생성 쓰레드 시작
         pwm_thread = thread(&ServoDriver::pwm_loop, this);
 
-        // 메모리 해제 (설정 객체들은 요청 후 해제 가능)
         gpiod_request_config_free(req_cfg);
         gpiod_line_config_free(line_cfg);
         gpiod_line_settings_free(settings);
@@ -144,19 +152,18 @@ public:
     }
 };
 
-// --- 3. 데이터 구조체 (Python과 통신용) ---
+// --- 3. 데이터 구조체 ---
 struct ControlData {
-    float throttle; // -1.0 ~ 1.0
-    float steering; // -1.0 ~ 1.0
+    float throttle;
+    float steering;
 };
 
 int main() {
-    cout << ">>> Neuro-Drive Hardware Server Started <<<" << endl;
+    cout << ">>> Neuro-Drive Hardware Server Started (Safe Mode) <<<" << endl;
 
     MotorDriver motors;
     ServoDriver servo;
 
-    // UDP 소켓 설정
     int sockfd;
     struct sockaddr_in servaddr, cliaddr;
     
@@ -175,30 +182,48 @@ int main() {
         return 1;
     }
 
-    cout << ">>> Listening on UDP Port " << UDP_PORT << " <<<" << endl;
+    // --- [중요] 타임아웃 설정 (Safety Mechanism) ---
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = TIMEOUT_US; // 0.5초
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv) < 0) {
+        perror("Setsockopt failed");
+        return 1;
+    }
+
+    cout << ">>> Listening on UDP Port " << UDP_PORT << " with " << TIMEOUT_US/1000 << "ms Watchdog <<<" << endl;
 
     ControlData data;
     socklen_t len = sizeof(cliaddr);
+    bool is_stopped = false; // 불필요한 중복 명령 방지용 플래그
     
     while (true) {
-        // 데이터 수신 (Blocking)
-        int n = recvfrom(sockfd, &data, sizeof(data), MSG_WAITALL, (struct sockaddr *)&cliaddr, &len);
+        // 데이터 수신 (이제 타임아웃 발생 시 -1 반환)
+        int n = recvfrom(sockfd, &data, sizeof(data), 0, (struct sockaddr *)&cliaddr, &len);
         
         if (n > 0) {
-            // 1. DC 모터 제어 (Throttle: -1.0~1.0 -> Speed: -100~100)
-            float speed_limit = 0.3f; // 일단 속도 좀 낮추기
-            int motor_speed = static_cast<int>(data.throttle * 100 * speed_limit);
+            // [정상 수신 시]
+            is_stopped = false;
+            
+            int motor_speed = static_cast<int>(data.throttle * 100);
             motors.setMotorA(motor_speed);
             motors.setMotorB(motor_speed);
 
-            // 2. 서보 모터 제어 (Steering: -1.0~1.0 -> Angle: 0~180)
-            // -1(좌) -> 0도, 0(중앙) -> 90도, 1(우) -> 180도
-            // 방향이 반대면 (1.0 - data.steering) 등으로 수정
             int servo_angle = static_cast<int>((data.steering + 1.0) * 90.0);
             servo.setAngle(servo_angle);
-
-            // 디버그 출력 (너무 빠르면 주석 처리)
-            // cout << "T: " << motor_speed << " | S: " << servo_angle << endl;
+        } 
+        else {
+            // [수신 실패 또는 타임아웃]
+            if ((errno == EAGAIN || errno == EWOULDBLOCK) && !is_stopped) {
+                // 타임아웃 발생! 즉시 정지
+                cout << "[Safety Warning] No Signal! Stopping Car..." << endl;
+                motors.stopAll();
+                
+                // 선택 사항: 조향도 중앙으로 정렬하려면 아래 주석 해제
+                // servo.setAngle(90); 
+                
+                is_stopped = true; // 정지 상태 기록
+            }
         }
     }
 
