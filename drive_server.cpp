@@ -220,7 +220,7 @@ int main() {
                 motors.stopAll();
                 
                 // 선택 사항: 조향도 중앙으로 정렬하려면 아래 주석 해제
-                // servo.setAngle(90); 
+                servo.setAngle(90); 
                 
                 is_stopped = true; // 정지 상태 기록
             }
