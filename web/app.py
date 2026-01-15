@@ -1,124 +1,144 @@
-import eventlet
-eventlet.monkey_patch()
+import sys
+import time
+import serial
+import threading
+from flask import Flask, render_template
+from flask_socketio import SocketIO
 
-import socket
-import struct
-import subprocess
-import os
-import signal
-from flask import Flask, render_template, request
-from flask_socketio import SocketIO, emit
+# ==========================================
+# 1. 설정 (Configuration)
+# ==========================================
+# [중요] STM32가 연결된 포트 이름 (아까 찾으신 걸로 확인!)
+SERIAL_PORT = '/dev/ttyACM0'  
+BAUD_RATE = 115200
 
-app = Flask(__name__)
-app.config['SECRET_KEY'] = 'secret!'
+app = Flask(__name__, static_folder='static', template_folder='templates')
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+# 시리얼 객체 (처음엔 None)
+stm32_serial = None
 
-UDP_IP = "127.0.0.1"
-UDP_PORT = 8080
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+# ==========================================
+# 2. 시스템 기능 (System Functions)
+# ==========================================
+def sys_log(msg, type="INFO"):
+    """
+    서버 터미널과 웹 UI 양쪽에 로그를 남기는 함수
+    """
+    timestamp = time.strftime("%H:%M:%S")
+    formatted_msg = f"[{timestamp}] {msg}"
+    print(f"[{type}] {formatted_msg}")
+    
+    # 웹페이지의 로그 터미널로도 전송
+    socketio.emit('system_log', {'type': type, 'log': formatted_msg})
 
-# [NEW] C++ 프로세스를 담을 전역 변수
-cpp_process = None
-
-car_state = {
-    'speed': 0.0,
-    'steering': 0.0,
-    'cpu_temp': 0.0,
-    'engine_status': False  # 엔진 상태 (True=켜짐)
-}
-
-def get_cpu_temp():
+def connect_serial():
+    """
+    STM32와 시리얼 연결 시도
+    """
+    global stm32_serial
     try:
-        temp = subprocess.check_output("vcgencmd measure_temp", shell=True)
-        return float(temp.decode("utf-8").replace("temp=", "").replace("'C\n", ""))
-    except:
-        return 0.0
+        stm32_serial = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+        sys_log(f"Connected to STM32 on {SERIAL_PORT}", "SUCCESS")
+        return True
+    except Exception as e:
+        sys_log(f"Serial Connection Failed: {e}", "ERROR")
+        return False
 
-def sys_log(message, type="INFO"):
-    log_data = f"[{type}] {message}"
-    print(log_data)
-    socketio.emit('system_log', {'log': log_data, 'type': type})
-
-def telemetry_loop():
-    while True:
-        car_state['cpu_temp'] = get_cpu_temp()
-        # 엔진 상태도 같이 방송
-        car_state['engine_status'] = (cpp_process is not None)
-        socketio.emit('car_telemetry', car_state)
-        socketio.sleep(1)
-
+# ==========================================
+# 3. 플라스크 라우팅 (Web Routing)
+# ==========================================
 @app.route('/')
 def index():
     return render_template('index.html')
 
+# ==========================================
+# 4. 소켓 통신 핸들러 (Socket Handlers)
+# ==========================================
 @socketio.on('connect')
 def handle_connect():
-    sys_log(f"Client Connected: {request.remote_addr}", "SUCCESS")
-    # 접속하자마자 현재 엔진 상태 알려줌
-    emit('engine_update', {'running': (cpp_process is not None)})
+    sys_log("Client Connected", "SUCCESS")
+    # 연결되자마자 시리얼 포트 확인
+    if stm32_serial is None or not stm32_serial.is_open:
+        connect_serial()
 
-# [NEW] 엔진 시동 토글 (켜기/끄기)
+@socketio.on('ping_event')
+def handle_ping(data):
+    # 레이턴시 측정을 위한 핑퐁 (index.html과 짝꿍)
+    socketio.emit('pong_event', data)
+
 @socketio.on('toggle_engine')
-def handle_toggle_engine():
-    global cpp_process
-    
-    if cpp_process is None:
-        try:
-            # [PRO 방식] 현재 app.py 파일의 위치를 기준으로 drive_server 경로를 정확히 찾습니다.
-            # 가정: app.py는 web/ 폴더에 있고, drive_server는 그 상위 폴더에 있음
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            exe_path = os.path.join(current_dir, "..", "drive_server") # 상위 폴더(..)의 실행파일
-            
-            # 파일이 실제로 있는지 체크 (디버깅용)
-            if not os.path.exists(exe_path):
-                 sys_log(f"File not found: {exe_path}", "ERROR")
-                 return
+def handle_engine():
+    # 시동 버튼 누름 (여기서는 단순 로그만, 나중에 기능 확장 가능)
+    sys_log("Engine Toggle Switch Activated", "INFO")
+    # 일단 켜진 것으로 응답
+    socketio.emit('engine_update', {'running': True})
 
-            # 찾은 절대 경로로 실행
-            cpp_process = subprocess.Popen([exe_path]) 
-            
-            sys_log("C++ Drive Engine STARTED", "SUCCESS")
-            emit('engine_update', {'running': True})
-        except Exception as e:
-            sys_log(f"Failed to start engine: {e}", "ERROR")
-    else:
-        # 2. 엔진 끄기 (Stop)
-        try:
-            # SIGINT(Ctrl+C) 신호를 보내서 깔끔하게 종료 유도
-            cpp_process.send_signal(signal.SIGINT)
-            cpp_process.wait(timeout=2) # 2초 대기
-            cpp_process = None
-            sys_log("C++ Drive Engine STOPPED", "WARN")
-            emit('engine_update', {'running': False})
-        except:
-            # 말 안 들으면 강제 종료 (Kill)
-            if cpp_process: cpp_process.kill()
-            cpp_process = None
-            sys_log("Engine Force Killed", "DANGER")
-            emit('engine_update', {'running': False})
-
+# ★★★ 핵심 수정 부분: 변수명을 throttle, steering으로 변경 ★★★
 @socketio.on('control_command')
 def handle_control_command(data):
-    if cpp_process is None: return # 엔진 꺼져있으면 명령 무시
+    """
+    index.html에서 보내준 {throttle, steering} 데이터를 받아서 처리
+    """
+    
+    # 1. 데이터 추출 (안전하게 float 변환)
+    try:
+        throttle = float(data.get('throttle', 0))
+        steering = float(data.get('steering', 0))
+        
+        # [디버깅 로그] 입력값이 제대로 들어오는지 눈으로 확인!
+        print(f"[DEBUG] Input -> Throttle: {throttle:.2f}, Steering: {steering:.2f}")
 
-    throttle = float(data.get('throttle', 0))
-    steering = float(data.get('steering', 0))
-    car_state['speed'] = throttle * 20 
-    send_udp_command(throttle, steering)
+    except ValueError:
+        return
 
-# [NEW] 레이턴시 측정을 위한 Ping-Pong 핸들러
-@socketio.on('ping_event')
-def handle_ping_event(data):
-    # 클라이언트가 보낸 타임스탬프를 그대로 반사(Echo)
-    emit('pong_event', data)
+    command = None
+    
+    # 2. 명령 판단 로직 (Threshold: 0.3)
+    # Nipple.js Vector: 위쪽(+y), 아래쪽(-y) ... 하지만 index.html에서 어떻게 오는지 로그 보고 판단 필요
+    # 보통 nipple.js vector.y는 위가 양수(+)입니다.
+    
+    THRESHOLD = 0.3
 
-def send_udp_command(throttle, steering):
-    payload = struct.pack('ff', throttle, steering)
-    sock.sendto(payload, (UDP_IP, UDP_PORT))
+    # (1) 주행 판단 (전진/후진 우선)
+    if throttle > THRESHOLD:
+        command = 'w'   # 전진
+    elif throttle < -THRESHOLD:
+        command = 'x'   # 후진
+    
+    # (2) 조향 판단 (주행 명령이 없을 때 회전 명령 처리)
+    # 만약 '전진하면서 우회전' 같은 복합 명령을 하려면 STM32 코드가 더 똑똑해야 함.
+    # 지금은 단순하게 주행이 없으면 조향을 체크하는 순서로 갑니다.
+    elif steering < -THRESHOLD:
+        command = 'a'   # 좌회전
+    elif steering > THRESHOLD:
+        command = 'd'   # 우회전
+        
+    # (3) 아무것도 안 밀었으면 정지
+    else:
+        command = 's'   # 정지
 
+    # 3. STM32로 전송
+    if command:
+        try:
+            if stm32_serial and stm32_serial.is_open:
+                stm32_serial.write(command.encode())
+                # 최종 전송 로그
+                sys_log(f"Sent to STM32: {command} (T:{throttle:.2f}, S:{steering:.2f})", "INFO")
+            else:
+                # 연결 끊겨있으면 재연결 시도
+                sys_log("Serial disconnected, retrying...", "WARN")
+                connect_serial()
+                
+        except Exception as e:
+            sys_log(f"Tx Error: {e}", "ERROR")
+
+# ==========================================
+# 5. 메인 실행 (Main Execution)
+# ==========================================
 if __name__ == '__main__':
-    print("Starting Neuro-Drive System...")
-    socketio.start_background_task(telemetry_loop)
-    # 0.0.0.0으로 열어야 외부 접속 가능
-    socketio.run(app, host='0.0.0.0', port=5000)
+    print("Starting Neuro-Driver Bridge Server...")
+    # 시리얼 연결 시도
+    connect_serial()
+    # 서버 시작
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
