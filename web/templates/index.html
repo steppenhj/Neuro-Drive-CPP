@@ -20,7 +20,6 @@
         .val { font-size: 24px; font-weight: bold; }
         .unit { font-size: 12px; color: #888; }
 
-        /* [NEW] 시동 버튼 스타일 */
         #engine_btn {
             width: 100%; height: 40px;
             background: #111; border: 2px solid #333; color: #555;
@@ -48,8 +47,8 @@
         <button id="engine_btn" onclick="toggleEngine()">ENGINE START</button>
 
         <div class="panel-box">
-            <span class="label">VELOCITY</span>
-            <span id="disp_speed" class="val">0.0</span> <span class="unit">km/h</span>
+            <span class="label">ENCODER (RAW)</span>
+            <span id="disp_speed" class="val">0</span> <span class="unit">Pulse</span>
         </div>
         <div class="panel-box">
             <span class="label">CORE TEMP</span>
@@ -68,12 +67,10 @@
     <script>
         const socket = io();
 
-        // --- 엔진 제어 함수 ---
         function toggleEngine() {
-            socket.emit('toggle_engine'); // 서버에 "버튼 눌렀다"고 알림
+            socket.emit('toggle_engine');
         }
 
-        // 서버에서 "엔진 켜졌다/꺼졌다" 응답 오면 UI 변경
         socket.on('engine_update', (data) => {
             const btn = document.getElementById('engine_btn');
             if(data.running) {
@@ -97,12 +94,22 @@
             terminal.prepend(newLog);
         });
 
-        socket.on('car_telemetry', (data) => {
-            document.getElementById('disp_speed').innerText = data.speed.toFixed(1);
-            document.getElementById('disp_temp').innerText = data.cpu_temp.toFixed(1);
+/* [수정됨] 엔코더 값 수신 (빠름) */
+        socket.on('encoder_update', (data) => {
+            document.getElementById('disp_speed').innerText = data.speed;
         });
 
-        // --- 조이스틱 및 데이터 전송 로직 ---
+        /* [수정됨] 상태 및 온도 수신 (1초마다) */
+        socket.on('status_update', (data) => {
+            // 온도
+            const tempElem = document.getElementById('disp_temp');
+            tempElem.innerText = data.cpu_temp.toFixed(1);
+            if(data.cpu_temp > 60) tempElem.style.color = "red";
+            else tempElem.style.color = "#00ffcc";
+
+            // (옵션) 엔진 상태가 서버와 동기화 안됐을 경우를 대비해 여기서도 체크 가능
+        });
+
         var manager = nipplejs.create({ 
             zone: document.getElementById('zone_joystick'), 
             mode: 'static', 
@@ -114,7 +121,6 @@
         let currentData = { throttle: 0, steering: 0 };
         let isTouching = false;
 
-        // 1. 조이스틱 움직임 감지
         manager.on('move', (evt, data) => { 
             if (data.vector) { 
                 currentData.throttle = data.vector.y; 
@@ -123,20 +129,17 @@
             } 
         });
 
-        // 2. 손을 뗐을 때 (즉시 정지)
         manager.on('end', () => { 
             currentData.throttle = 0; 
             currentData.steering = 0; 
             isTouching = false; 
-            sendData(0, 0); // 강제 0 전송
+            sendData(0, 0); 
         });
         
-        // 3. 0.1초마다 데이터 전송 (Heartbeat)
         setInterval(() => { 
             if(isTouching) sendData(currentData.throttle, currentData.steering); 
         }, 100);
 
-        // 4. 슬라이더 값을 적용해서 서버로 보내는 함수
         function sendData(throttleRaw, steeringRaw){
             const limit = document.getElementById('max_speed').value / 100;
             const payload = {
@@ -146,14 +149,11 @@
             socket.emit('control_command', payload);
         }
 
-        // --- [수정됨] 레이턴시 체크 (Ping-Pong 방식) ---
-        // 1. 1초마다 서버로 'ping_event' 전송
         setInterval(() => { 
             const start = Date.now(); 
             socket.emit('ping_event', { timestamp: start }); 
         }, 1000);
 
-        // 2. 서버에서 'pong_event' 돌아오면 계산
         socket.on('pong_event', (data) => {
             const latency = Date.now() - data.timestamp;
             document.getElementById('latency').innerText = latency;
