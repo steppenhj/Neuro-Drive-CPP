@@ -36,7 +36,7 @@
 </head>
 <body>
     <div class="grid-overlay"></div>
-    <img id="video_feed" src="https://via.placeholder.com/640x480?text=NEURO-DRIVE+SYSTEM" alt="Video">
+    <img id="video_feed" src="{{ url_for('video_feed') }}" alt="Video">
 
     <div id="hud">
         <div class="status-line">SYSTEM: <span id="sys_status">OFFLINE</span></div>

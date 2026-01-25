@@ -1,35 +1,90 @@
 import sys
 import time
 import serial
-import eventlet # [중요] 비동기 라이브러리
-# eventlet 버그 방지를 위한 패치
+import cv2
+import eventlet
 from eventlet.semaphore import Semaphore
 eventlet.monkey_patch()
 
-from flask import Flask, render_template
+from flask import Flask, render_template, Response
 from flask_socketio import SocketIO, emit
-# [수정 2] 전역 변수에 락(Lock) 생성
-serial_lock = Semaphore(1) # <-- 추가
+
+serial_lock = Semaphore(1)
 
 # ==========================================
 # 1. 설정 (Configuration)
 # ==========================================
 SERIAL_PORT = '/dev/ttyACM0'
 BAUD_RATE = 115200
-
-# 조향 팩터 (자네 상황에 맞게 조절)
 STEERING_FACTOR = 500 
 CENTER_PWM = 1500   
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
-# [중요] async_mode를 eventlet으로 명시하여 성능 극대화
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 stm32_serial = None
 engine_running = False 
+camera = None
 
 # ==========================================
-# 2. 시스템 기능
+# 2. 카메라 설정 (라즈베리파이 5 GStreamer 호환)
+# ==========================================
+def get_camera():
+    global camera
+    if camera is None:
+        try:
+            # [수정] 라즈베리파이 5용 GStreamer 파이프라인
+            # libcamerasrc를 통해 영상을 받아와서 OpenCV가 이해하는 포맷으로 변환
+            # [수정된 파이프라인] YUY2 포맷을 명시하여 ISP를 강제 구동
+# [수정된 파이프라인] 카메라가 선호하는 I420 포맷 사용
+            pipeline = (
+                "libcamerasrc ! "
+                "video/x-raw, format=I420, width=640, height=480, framerate=30/1 ! "
+                "videoconvert ! "
+                "video/x-raw, format=BGR ! "
+                "appsink drop=true sync=false"
+            )
+            
+            # GStreamer 백엔드로 카메라 열기
+            camera = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+            
+            if not camera.isOpened():
+                print("[ERROR] Camera failed to open via GStreamer.")
+                camera = None
+            else:
+                print("[SUCCESS] Camera opened via GStreamer pipeline.")
+                
+        except Exception as e:
+            print(f"[ERROR] Camera Init Failed: {e}")
+            camera = None
+            
+    return camera
+
+def generate_frames():
+    while True:
+        cam = get_camera()
+        
+        # 카메라가 없거나 연결 실패 시, 검은 화면 대신 빈 데이터 전송 (조종은 되게 함)
+        if cam is None or not cam.isOpened():
+            socketio.sleep(1.0) # 1초 대기 후 재시도
+            continue
+
+        success, frame = cam.read()
+        if not success:
+            socketio.sleep(0.1)
+            continue
+        
+        # 이미지 압축 (화질 70%)
+        ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+        frame_bytes = buffer.tobytes()
+        
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        
+        eventlet.sleep(0.01)
+
+# ==========================================
+# 3. 시스템 기능
 # ==========================================
 def sys_log(msg, type="INFO"):
     timestamp = time.strftime("%H:%M:%S")
@@ -40,7 +95,7 @@ def sys_log(msg, type="INFO"):
 def connect_serial():
     global stm32_serial
     try:
-        stm32_serial = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1) # 타임아웃 단축
+        stm32_serial = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1)
         stm32_serial.flushInput()
         sys_log(f"Connected to STM32 on {SERIAL_PORT}", "SUCCESS")
         return True
@@ -48,9 +103,7 @@ def connect_serial():
         sys_log(f"Serial Connection Failed: {e}", "ERROR")
         return False
 
-# [수정 3] send_to_stm32 함수에 락 적용
 def send_to_stm32(speed, angle):
-    # 락을 걸어서 동시에 여러 스레드가 쓰지 못하게 막음
     with serial_lock: 
         if stm32_serial and stm32_serial.is_open:
             try:
@@ -60,62 +113,47 @@ def send_to_stm32(speed, angle):
                 print(f"Serial Write Error: {e}")
 
 # ==========================================
-# 3. 백그라운드 태스크 (비동기 처리)
+# 4. 백그라운드 태스크
 # ==========================================
-
-# [태스크 1] STM32 데이터 수신 전담 (엔코더)
 def read_serial_task():
     global stm32_serial
     print("[Task] Serial Listener Started")
-    
     while True:
         if stm32_serial and stm32_serial.is_open:
             try:
                 if stm32_serial.in_waiting > 0:
                     try:
                         line = stm32_serial.readline().decode('utf-8', errors='ignore').strip()
-                        
-                        # [디버깅] 엔코더 값이 들어오는지 터미널로 확인
-                        # print(f"Raw: {line}") 
-                        
                         if line.startswith("ENC:"):
                             val_str = line.split(":")[1]
-                            raw_val = int(val_str)
-                            
-                            # 엔코더 값만 빠르게 전송
-                            socketio.emit('encoder_update', {'speed': raw_val})
+                            socketio.emit('encoder_update', {'speed': int(val_str)})
                     except ValueError:
                         pass
             except Exception as e:
                 print(f"Serial Read Error: {e}")
-        
-        socketio.sleep(0.01) # [중요] time.sleep 대신 socketio.sleep 사용
+        socketio.sleep(0.01)
 
-# [태스크 2] 상태 모니터링 전담 (온도, 시스템 상태) - 1초에 1번만 실행
 def status_monitor_task():
     print("[Task] Monitor Started")
     while True:
         try:
-            # CPU 온도 읽기
             with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
                 temp = float(f.read()) / 1000.0
-            
-            # 온도 및 상태 전송
-            socketio.emit('status_update', {
-                'cpu_temp': temp,
-                'engine': engine_running
-            })
-        except Exception as e:
-            print(f"Monitor Error: {e}")
-            
-        socketio.sleep(1.0) # 1초 대기
+            socketio.emit('status_update', {'cpu_temp': temp, 'engine': engine_running})
+        except Exception:
+            pass
+        socketio.sleep(1.0)
 
 # ==========================================
-# 4. 라우팅 & 소켓 핸들러
+# 5. 라우팅 & 소켓 핸들러
 # ==========================================
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/video_feed')
+def video_feed():
+    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @socketio.on('connect')
 def handle_connect():
@@ -124,50 +162,37 @@ def handle_connect():
 
 @socketio.on('ping_event')
 def handle_ping(data):
-    # 즉시 응답 (지연 시간 체크용)
     emit('pong_event', data)
 
 @socketio.on('toggle_engine')
 def handle_engine():
     global engine_running
     engine_running = not engine_running
-    
-    if engine_running:
-        sys_log("Engine STARTED", "SUCCESS")
-        emit('engine_update', {'running': True})
-    else:
-        sys_log("Engine STOPPED", "WARN")
-        emit('engine_update', {'running': False})
-        send_to_stm32(0, CENTER_PWM)
+    status = "STARTED" if engine_running else "STOPPED"
+    sys_log(f"Engine {status}", "SUCCESS" if engine_running else "WARN")
+    emit('engine_update', {'running': engine_running})
+    if not engine_running: send_to_stm32(0, CENTER_PWM)
 
 @socketio.on('control_command')
 def handle_control_command(data):
-    if not engine_running:
-        return
-
+    if not engine_running: return
     try:
         throttle = float(data.get('throttle', 0))
         steering = float(data.get('steering', 0))
-        
         pwm_speed = int(throttle * 999)
         pwm_angle = int(CENTER_PWM + (steering * STEERING_FACTOR))
         pwm_angle = max(700, min(2300, pwm_angle))
-
         send_to_stm32(pwm_speed, pwm_angle)
-
-    except Exception as e:
-        print(f"[ERROR] {e}")
+    except Exception:
+        pass
 
 # ==========================================
-# 5. 메인 실행
+# 6. 메인 실행
 # ==========================================
 if __name__ == '__main__':
-    print("Starting Neuro-Driver Async Server...")
-    
+    print("Starting Neuro-Driver Async Server with GStreamer...")
     if connect_serial():
-        # 백그라운드 태스크 시작
         socketio.start_background_task(read_serial_task)
         socketio.start_background_task(status_monitor_task)
     
-    # [중요] flask run 대신 socketio.run 사용
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
