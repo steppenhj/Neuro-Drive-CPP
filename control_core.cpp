@@ -139,7 +139,7 @@
             // 안전을 위해 정지 명령 전송
             // snprintf(buffer, sizeof(buffer), "0,1500\n");
             // write(serial_fd, buffer, strlen(buffer));
-            // std::cout << "[Warn] No Signal... Stopping." << std::endl;
+            // std::cout << "[Warn] No Signal... Stopping." << std::endl; 
         }
     }
 
