@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neuro-Drive Control</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+    <style>
+        /* [수정] html, body 모두에 터치 및 선택 방지 적용 */
+        html, body { 
+            margin: 0; 
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #050505; 
+            color: #00ffcc; 
+            font-family: 'Consolas', monospace; 
+            overflow: hidden; /* 스크롤바 숨김 */
+            
+            /* ▼▼▼ [핵심] 터치로 확대/스크롤/더블탭 줌 금지 ▼▼▼ */
+            touch-action: none; 
+            
+            /* 텍스트 선택/복사 금지 */
+            user-select: none;
+            -webkit-user-select: none; /* 사파리/크롬 호환 */
+            -webkit-touch-callout: none; /* iOS 길게 누르기 메뉴 금지 */
+        }
+
+ #video_feed { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            object-fit: contain; 
+            
+            z-index: 0;   /* 맨 뒤 */
+            opacity: 1.0; /* 투명도 끄기 (선명하게) */
+        }
+
+        /* [수정 2] 격자 무늬: 카메라 바로 위 */
+        .grid-overlay { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            background-image: linear-gradient(rgba(0, 255, 204, 0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 255, 204, 0.1) 1px, transparent 1px); 
+            background-size: 50px 50px; 
+            
+            z-index: 1; /* 카메라(0) 보다 위 */
+            pointer-events: none; 
+        }
+        
+        #hud { position: absolute; top: 20px; left: 20px; border-left: 3px solid #00ffcc; padding-left: 10px; pointer-events: none; /* HUD가 터치 방해하지 않게 */ }
+        .status-line { margin: 5px 0; font-size: 14px; text-shadow: 0 0 5px #00ffcc; }
+
+        #right_panel { position: absolute; top: 20px; right: 20px; width: 160px; display: flex; flex-direction: column; gap: 10px; }
+        .panel-box { background: rgba(0, 20, 0, 0.7); border: 1px solid #00ffcc; padding: 10px; box-shadow: 0 0 10px rgba(0, 255, 204, 0.2); text-align: right; }
+        .label { font-size: 10px; color: #aaa; margin-bottom: 2px; display: block; }
+        .val { font-size: 24px; font-weight: bold; }
+        .unit { font-size: 12px; color: #888; }
+
+        /* [수정 3] UI 요소들을 맨 앞으로 가져오기 (z-index: 10) */
+        #hud, #right_panel, #log_terminal, #zone_joystick {
+            z-index: 10; /* 모든 배경보다 위 */
+        }
+        
+        button {
+            touch-action: manipulation; /* 버튼 클릭 반응성 향상 */
+        }
+
+        #engine_btn {
+            width: 100%; height: 40px;
+            background: #111; border: 2px solid #333; color: #555;
+            font-family: 'Consolas', monospace; font-weight: bold; font-size: 14px;
+            cursor: pointer; transition: 0.3s;
+        }
+        #engine_btn.on { background: rgba(0, 255, 204, 0.3); border-color: #00ffcc; color: #00ffcc; box-shadow: 0 0 15px #00ffcc; }
+        
+        #log_terminal { position: absolute; bottom: 20px; right: 20px; width: 300px; height: 150px; background: rgba(0, 0, 0, 0.8); border: 1px solid #333; font-size: 11px; color: #0f0; padding: 5px; overflow-y: auto; display: flex; flex-direction: column-reverse; pointer-events: none; }
+        .log-entry { margin: 2px 0; border-bottom: 1px solid #222; }
+        
+        #zone_joystick { position: absolute; top: 60%; left: 50%; transform: translate(-50%, -50%); width: 300px; height: 300px; z-index: 10; }
+
+        #rec_btn {
+            width: 100%; height: 40px; margin-top: 10px;
+            background: #111; border: 2px solid #555; color: #555;
+            font-family: 'Consolas', monospace; font-weight: bold; font-size: 14px;
+            cursor: pointer; transition: 0.3s;
+        }
+        #rec_btn.on { 
+            background: rgba(255, 0, 0, 0.3); 
+            border-color: #ff0000; 
+            color: #ff0000; 
+            box-shadow: 0 0 15px #ff0000; 
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="grid-overlay"></div>
+    <img id="video_feed" src="{{ url_for('video_feed') }}" alt="Video">
+
+    <div id="hud">
+        <div class="status-line">SYSTEM: <span id="sys_status">OFFLINE</span></div>
+        <div class="status-line">LATENCY: <span id="latency">0</span> ms</div>
+    </div>
+
+    <div id="right_panel">
+        <button id="engine_btn" onclick="toggleEngine()">ENGINE START</button>
+        <button id="rec_btn" onclick="toggleRecording()">REC DATA</button>
+
+        <div class="panel-box">
+            <span class="label">ENCODER (RAW)</span>
+            <span id="disp_speed" class="val">0</span> <span class="unit">Pulse</span>
+        </div>
+        <div class="panel-box">
+            <span class="label">CORE TEMP</span>
+            <span id="disp_temp" class="val">0.0</span> <span class="unit">°C</span>
+        </div>
+        <div class="panel-box" style="text-align: left;">
+            <span class="label">MAX POWER LIMIT</span>
+            <input type="range" id="max_speed" min="0" max="100" value="30" oninput="document.getElementById('limit_val').innerText=this.value" style="width: 100%; accent-color: #00ffcc;">
+            <div style="text-align: right; font-size: 12px; color: #00ffcc;"><span id="limit_val">30</span> %</div>
+        </div>
+    </div>
+
+    <div id="log_terminal"><div class="log-entry">[SYSTEM] Waiting for connection...</div></div>
+    <div id="zone_joystick"></div>
+
+    <script>
+        const socket = io();
+
+        function toggleEngine() {
+            socket.emit('toggle_engine');
+        }
+
+        socket.on('engine_update', (data) => {
+            const btn = document.getElementById('engine_btn');
+            if(data.running) {
+                btn.innerText = "ENGINE ONLINE";
+                btn.classList.add('on');
+            } else {
+                btn.innerText = "ENGINE START";
+                btn.classList.remove('on');
+            }
+        });
+
+        socket.on('connect', () => { document.getElementById('sys_status').innerText = "ONLINE"; document.getElementById('sys_status').style.color = "lime"; });
+        socket.on('disconnect', () => { document.getElementById('sys_status').innerText = "OFFLINE"; document.getElementById('sys_status').style.color = "red"; document.getElementById('engine_btn').classList.remove('on'); });
+        
+        socket.on('system_log', (data) => {
+            const terminal = document.getElementById('log_terminal');
+            const newLog = document.createElement('div');
+            newLog.className = 'log-entry';
+            newLog.style.color = data.type === 'ERROR' ? 'red' : (data.type === 'SUCCESS' ? '#00ffcc' : '#0f0');
+            newLog.innerText = `[${data.type}] ${data.log.replace(`[${data.type}] `, '')}`;
+            terminal.prepend(newLog);
+        });
+
+        socket.on('encoder_update', (data) => {
+            document.getElementById('disp_speed').innerText = data.speed;
+        });
+
+        socket.on('status_update', (data) => {
+            const tempElem = document.getElementById('disp_temp');
+            tempElem.innerText = data.cpu_temp.toFixed(1);
+            if(data.cpu_temp > 60) tempElem.style.color = "red";
+            else tempElem.style.color = "#00ffcc";
+        });
+
+        var manager = nipplejs.create({ 
+            zone: document.getElementById('zone_joystick'), 
+            mode: 'static', 
+            position: {left: '50%', top: '60%'}, 
+            color: '#00ffcc', 
+            size: 150 
+        });
+
+        let currentData = { throttle: 0, steering: 0 };
+        let isTouching = false;
+
+        manager.on('move', (evt, data) => { 
+            if (data.vector) { 
+                currentData.throttle = data.vector.y; 
+                currentData.steering = data.vector.x; 
+                isTouching = true; 
+            } 
+        });
+
+        manager.on('end', () => { 
+            currentData.throttle = 0; 
+            currentData.steering = 0; 
+            isTouching = false; 
+            sendData(0, 0); 
+        });
+        
+        setInterval(() => { 
+            if(isTouching) sendData(currentData.throttle, currentData.steering); 
+        }, 100);
+
+        function sendData(throttleRaw, steeringRaw){
+            const limit = document.getElementById('max_speed').value / 100;
+            const payload = {
+                throttle: (throttleRaw * limit).toFixed(2),
+                steering: steeringRaw.toFixed(2)
+            };
+            socket.emit('control_command', payload);
+        }
+
+        setInterval(() => { 
+            const start = Date.now(); 
+            socket.emit('ping_event', { timestamp: start }); 
+        }, 1000);
+
+        socket.on('pong_event', (data) => {
+            const latency = Date.now() - data.timestamp;
+            document.getElementById('latency').innerText = latency;
+        });
+
+        function toggleRecording() {
+            socket.emit('toggle_recording');
+        }
+
+        socket.on('recording_update', (data) => {
+            const btn = document.getElementById('rec_btn');
+            if(data.recording) {
+                btn.innerText = "RECORDING...";
+                btn.classList.add('on');
+            } else {
+                btn.innerText = "REC DATA";
+                btn.classList.remove('on');
+            }
+        });
+
+        // [중요] 더블 탭 확대 방지 (JavaScript 강제 차단)
+        document.addEventListener('dblclick', function(event) {
+            event.preventDefault();
+        }, { passive: false });
+    </script>
+</body>
+</html>
