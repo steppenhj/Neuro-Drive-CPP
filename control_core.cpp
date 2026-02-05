@@ -52,7 +52,7 @@
 
 
     //Raw 모드 설정 (이게 없으면 바이너리 전송 시에 문제될 수도)
-    options.c_cflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+    options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
     options.c_oflag &= ~OPOST;
 
     tcsetattr(fd, TCSANOW, &options);
@@ -94,10 +94,10 @@
     socklen_t len = sizeof(cliaddr);
 
     // Watchdog용 타임아웃 설정 (UDP 수신 대기 시)
-    strcut timeval tv;
+    struct timeval tv;
     tv.tv_sec = 0;
     tv.tv_usec = 500000; // 500ms
-    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char&)&tv, sizeof tv);
+    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
 
     while(true){
         //3. 데이터 수신(blocking with timeout)
@@ -128,7 +128,7 @@
             if(pwm_angle < 600) pwm_angle = 600;
 
             // 4. stm32로 전송("speed,angle\n" 포맷. 일단 십진수 쓰는데 나중에 16진수 쓸까 고민중이긴 함.)
-            int len = sprintf(buffer, sizeof(buffer), "%d,%d\n", pwm_speed, pwm_angle);
+            int len = snprintf(buffer, sizeof(buffer), "%d,%d\n", pwm_speed, pwm_angle);
             write(serial_fd, buffer, len);
 
             //debug (너무 많으면 주석 처리하자. 일단 처음에도 주석처리임. 버그있으면 이거 풀어서 확인하면됨)
