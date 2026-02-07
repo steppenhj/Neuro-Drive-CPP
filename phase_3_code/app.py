@@ -121,6 +121,7 @@ def sys_log(msg, type="INFO"):
     formatted_msg = f"[{timestamp}] {msg}"
     print(f"[{type}] {formatted_msg}")
     socketio.emit('system_log', {'type': type, 'log': formatted_msg})
+    # 받아주고
 
 def connect_serial():
     global stm32_serial

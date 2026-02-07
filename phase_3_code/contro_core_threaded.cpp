@@ -11,7 +11,6 @@
  #include <mutex> // 자원 보호용 자물쇠
  #include <chrono> // 시간제어
  #include <atomic> //플래그용
- #include <cstdint>
  #include <cstring>
  #include <cmath>
  #include <unistd.h>
@@ -35,18 +34,6 @@
 
  //프로그램 종료 플래그
  atomic<bool> keep_running(true);
-
- //watchdog 선언
- constexpr int WATCHDOG_MS = 200;
-
- // fail-safe 추가하자. 
- // python에서 udp 안 오면 멈추기
- atomic<int64_t> last_rx_us{0};
-
- static inline int64_t now_us(){
-    using namespace std::chrono;
-    return duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count();
- }
 
  // 2. 유틸리티 함수 (시리얼 설정)
  int open_serial(const char* device){
@@ -98,9 +85,6 @@
                 shared_data.steering = pkt.st;
                 shared_data.is_active = true;
                 // 자물쇠는 lock_guard가 사라질 때(블록 끝) 자동으로 풀림
-
-                // last_rx_us 갱신
-                last_rx_us.store(now_us(), std::memory_order_relaxed);
             }
         }
         close(sockfd);
@@ -109,25 +93,10 @@
     //4. 스레드2 : 제어 루프 (Controller 역할)
     void control_loop_task(int serial_fd){
         cout << "[Thread 2] Control Loop Started (100Hz)." << endl;
-
         char buffer[64];
 
-        //fail-safe거ㅣㄴ관련
-        using clock = std::chrono::steady_clock;
-        auto next_tick = clock::now();
-        int64_t max_jitter_us = 0;
-        int64_t min_jitter_us = 1'000'000;
-        int64_t sum_jitter_us = 0;
-        uint64_t loop_count = 0;
-
-
         while(keep_running){
-            next_tick += std::chrono::milliseconds(10); //100Hz target
-
-            //watchdog 판단
-            const int64_t age_us = now_us() - last_rx_us.load(std::memory_order_relaxed);
-            const bool timed_out = (age_us > (int64_t)WATCHDOG_MS * 1000);
-
+            auto start_time = chrono::steady_clock::now();
 
             float th_local = 0;
             float st_local = 0;
@@ -139,47 +108,18 @@
                 st_local = shared_data.steering;
 
                 // Watchdog: 데이터가 안 들어오는지 체크 로직은 여기에 추가할 수 있다
-            } //여기에서 lock_guard가 자동 소멸, 락 자동 해제임.
-            if(timed_out){
-                th_local = 0.0f;
-                st_local = 0.0f;
             }
 
             // 2. 제어 연산 (자물쇠 없이 자유롭게 계산)
             int pwm_speed = (int)(th_local * 999.0f);
             int pwm_angle = 1500 + (int)(st_local * 900.0f);
 
-            // 3. uart 전송 --- 형태 유지해야지~~ 띄어쓰기도 없이
+            // 3. 시리얼 전송 --- 형태 유지해야지~~ 띄어쓰기도 없이
             int len = snprintf(buffer, sizeof(buffer), "%d,%d\n", pwm_speed, pwm_angle);
             write(serial_fd, buffer, len);
 
-            // 지터 계측: 실제로 얼마나 늦거나 빨랐는지
-            auto now = clock::now();
-            auto jitter = std::chrono::duration_cast<std::chrono::microseconds>(now - next_tick).count();
-            //next_tick 대비 늦으면 +, 빠르면 - 값.
-            int64_t abs_jitter = (jitter < 0) ? -jitter : jitter;
-
-            if(loop_count > 5){
-                // 초기 몇 회 버리기
-                if(abs_jitter > max_jitter_us) max_jitter_us = abs_jitter;
-                if(abs_jitter < min_jitter_us) min_jitter_us = abs_jitter;
-                sum_jitter_us += abs_jitter;
-            }
-            loop_count++;
-
-            if(loop_count % 200 == 0){
-                //2초마다 리포트
-                double avg = (loop_count > 5) ? (double)sum_jitter_us / (double)(loop_count-5) : 0.0;
-                cout << "[PERF] jitter(us) avg=" << avg
-                    << " min=" << min_jitter_us
-                    << " max=" << max_jitter_us
-                    << " watchdog=" << (timed_out ? "TRIGGER" : "OK")
-                    << " age_ms=" << (age_us / 1000.0)
-                    << endl;
-            }
-
-            // 4. 주기 맞추기 (
-            this_thread::sleep_until(next_tick);
+            // 4. 주기 맞추기 (100Hz = 10ms)
+            this_thread::sleep_until(start_time + chrono::milliseconds(10));
         }
     }
 
@@ -191,10 +131,6 @@
         cerr << "Error: Serial Open Failed" << endl;
         return -1;
     }
-
-
-    //첫 실행 때 watchdog 바로 trigger 예방
-    last_rx_us.store(now_us(), std::memory_order_relaxed);
 
     //  thread생성 및 실행
     thread receiver(udp_receiver_task);

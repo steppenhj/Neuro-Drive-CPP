@@ -1,7 +1,7 @@
 /* USER CODE BEGIN Header */
 /**
-  * @brief          : Neuro-Driver Firmware (Simple Polling Version)
-  * @note           : DMA/Interrupt 제거됨. 가장 기본 모드.
+  * @brief          : 인터럽트해보자. 
+  * @note           : 
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
@@ -143,13 +143,14 @@ int main(void)
     HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3); // Servo
 
     // 큐 생성 (크기: 16개, 데이터 크기: 상자 크기만큼)
-    myQueueHandle = osMessageQueueNew(16, sizeof(MotorCommand_t), NULL);
+    // 큐 생성 옮겨야 함
     // 3. 변수 초기화
     last_command_time = HAL_GetTick();
 
     // 인터럽트 수신 시작( 한 글자 들어오면 인터럽트 발생해라는 느낌)
-    HAL_UART_Receive_IT(&huart2, &rx_data, 1);
-  /* USER CODE END 2 */
+    // 이것도 옮겨야함
+
+    /* USER CODE END 2 */
 
   /* Init scheduler */
   osKernelInitialize();
@@ -168,6 +169,7 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
+  myQueueHandle = osMessageQueueNew(16, sizeof(MotorCommand_t), NULL);
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -524,6 +526,8 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
+  HAL_UART_Receive_IT(&huart2, &rx_data, 1);
+
   /* Infinite loop */
   for(;;)
   {

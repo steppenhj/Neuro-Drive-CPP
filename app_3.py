@@ -11,7 +11,7 @@ import os
 import datetime
 import csv
 from flask import Flask, render_template, Response
-from flask_socketio import SocektIO, emit
+from flask_socketio import SocketIO, emit
 
 eventlet.monkey_patch()
 
@@ -76,7 +76,7 @@ def generate_frames():
         #녹화 로직
         if recording and csv_writer and current_session_dir:
             try:
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%h%M%S_%f")
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
                 img_filename = f"img_{timestamp}.jpg"
                 full_path = os.path.join(current_session_dir, img_filename)
                 cv2.imwrite(full_path, frame)
@@ -105,7 +105,7 @@ def sys_log(msg, type="INFO"):
 def send_to_cpp(throttle, steering):
     try:
         #float 2ro (4byte * 2 = 8byte) 패킹
-        packet = struct.pack('ff', float(throttle), float(steering))
+        packet = struct.pack('<ff', float(throttle), float(steering))
         udp_sock.sendto(packet, (CPP_IP, CPP_PORT))
     except Exception as e:
         print(f"UDP Error: {e}")
@@ -163,7 +163,7 @@ def handle_recording():
         if not os.path.exists(current_session_dir):
             os.makedirs(current_session_dir)
         log_path = os.path.join(current_session_dir, "data_log.csv")
-        csv_file = open(log_path, 'w', newline'')
+        csv_file = open(log_path, 'w', newline='')
         csv_writer = csv.writer(csv_file)
         csv_writer.writerow(['image', 'steering', 'throttle'])
         sys_log(f"Recording Session: {session_name}", "SAVE")

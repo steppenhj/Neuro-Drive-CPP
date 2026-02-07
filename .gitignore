@@ -1,4 +1,4 @@
-# 파이썬 관련 쓰레기 파일 무시
+Smart-Bug-Farm/# 파이썬 관련 쓰레기 파일 무시
 __pycache__/
 *.py[cod]
 venv/

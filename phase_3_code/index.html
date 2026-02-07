@@ -206,15 +206,20 @@
             if(isTouching) sendData(currentData.throttle, currentData.steering); 
         }, 100);
 
+        //일단 여기서 정규화해서 보내긴 함
+        //뭐 그럴 일은 없겠지만
+        // 해킹 같은 것에는 정규화해서 보내는 걸로 대비가 가능함
         function sendData(throttleRaw, steeringRaw){
             const limit = document.getElementById('max_speed').value / 100;
             const payload = {
                 throttle: (throttleRaw * limit).toFixed(2),
                 steering: steeringRaw.toFixed(2)
+                //이거 toFixed가 문자열임. 숫자로 보내려면 Number로 감싸야함. 
             };
             socket.emit('control_command', payload);
         }
 
+        //일단 여기는 js와 py의 왕복 지연임
         setInterval(() => { 
             const start = Date.now(); 
             socket.emit('ping_event', { timestamp: start }); 
