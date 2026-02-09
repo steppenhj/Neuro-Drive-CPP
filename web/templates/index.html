@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Neuro-Drive HUD</title>
+    <title>Neuro-Drive Controller</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
     <style>
@@ -20,74 +20,60 @@
             display: flex; width: 100%; height: 100%; flex-direction: row;
         }
 
-        /* --- [왼쪽] 카메라 및 정보창 영역 --- */
+        /* --- [왼쪽] 정보창 영역 --- */
         .left-panel {
-            flex: 7; /* 화면의 70% */
+            flex: 6; /* 비율 조정 */
             position: relative; 
-            background: #000;
+            background: #0a0a0a;
             border-right: 2px solid #00ffcc;
-            overflow: hidden;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
         }
 
-        /* 비디오 피드 (개발용 검은 박스 상태) */
-        #video_placeholder {
-            width: 100%; height: 100%; 
-            background: #000; 
-            display: flex; justify-content: center; align-items: center; 
-            color: #333; font-weight: bold;
+        /* 시스템 상태 (좌측 상단 고정) */
+        .sys-status {
+            position: absolute; top: 20px; left: 20px;
+            font-size: 14px; border-left: 3px solid #00ffcc;
+            padding-left: 10px; color: #aaa;
         }
-        #video_feed {
-            width: 100%; height: 100%; object-fit: contain;
-            position: absolute; top: 0; left: 0; z-index: 0;
+        #status_text { color: red; font-weight: bold; }
+
+        /* 중앙 로고 혹은 텍스트 */
+        .center-msg {
+            font-size: 2rem; color: #222; font-weight: bold;
+            text-transform: uppercase; letter-spacing: 5px;
         }
 
-        /* 격자 무늬 */
-        .grid-overlay {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background-image: linear-gradient(rgba(0, 255, 204, 0.1) 1px, transparent 1px), 
-                              linear-gradient(90deg, rgba(0, 255, 204, 0.1) 1px, transparent 1px);
-            background-size: 50px 50px; pointer-events: none; z-index: 1;
-        }
-
-        /* ★ [핵심] 왼쪽 하단 대시보드 (HUD) */
+        /* ★ [핵심] 하단 대시보드 (HUD) */
         .dashboard {
             position: absolute; 
-            bottom: 10px; left: 10px; right: 10px; /* 하단 꽉 차게 */
-            background: rgba(0, 0, 0, 0.6); /* 반투명 배경 */
-            padding: 10px; border-radius: 8px;
+            bottom: 30px; left: 30px; right: 30px;
+            background: rgba(20, 20, 20, 0.8);
+            padding: 20px; border-radius: 12px;
             border: 1px solid #333;
-            z-index: 10; /* 영상 위에 뜸 */
-            display: flex; gap: 15px; align-items: center;
+            display: flex; gap: 30px; align-items: center; justify-content: space-between;
         }
 
-        /* 대시보드 내부 그룹 */
-        .dash-group { display: flex; flex-direction: column; gap: 5px; }
-        .dash-row { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #aaa; }
-        .val { color: #00ffcc; font-weight: bold; font-size: 14px; }
+        .dash-group { display: flex; flex-direction: column; gap: 10px; }
+        .dash-row { display: flex; align-items: center; gap: 15px; font-size: 14px; color: #aaa; }
+        .val { color: #00ffcc; font-weight: bold; font-size: 16px; }
 
-        /* 버튼 스타일 (작지만 누르기 쉽게) */
+        /* 버튼 스타일 */
         button {
-            height: 40px; width: 80px;
+            height: 50px; width: 100px;
             background: #222; border: 1px solid #00ffcc; color: #00ffcc;
-            border-radius: 5px; font-weight: bold; cursor: pointer;
+            border-radius: 6px; font-weight: bold; cursor: pointer;
+            font-size: 16px; transition: 0.2s;
         }
-        button.active { background: #00ffcc; color: #000; box-shadow: 0 0 10px #00ffcc; }
+        button.active { background: #00ffcc; color: #000; box-shadow: 0 0 15px #00ffcc; }
         
-        input[type=range] { width: 100px; accent-color: #00ffcc; }
+        input[type=range] { width: 150px; accent-color: #00ffcc; }
 
-        /* 시스템 상태 (좌측 상단) */
-        .sys-status {
-            position: absolute; top: 10px; left: 10px; z-index: 10;
-            background: rgba(0,0,0,0.5); padding: 5px; border-radius: 4px;
-            font-size: 12px; border-left: 3px solid #00ffcc;
-        }
-
-        /* --- [오른쪽] 조이스틱 전용 영역 --- */
+        /* --- [오른쪽] 조이스틱 영역 --- */
         .right-panel {
-            flex: 3; /* 화면의 30% */
+            flex: 4;
             background: #111;
             position: relative;
-            /* ★ 핵심: 이 영역 전체가 조이스틱 터치 영역이 됨 */
         }
 
         #joystick_zone {
@@ -95,7 +81,6 @@
             position: absolute; top: 0; left: 0;
             background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0) 70%);
         }
-
     </style>
 </head>
 <body>
@@ -103,28 +88,22 @@
     <div class="main-container">
         
         <div class="left-panel">
-            <div class="grid-overlay"></div>
-            <div class="sys-status">SYS: <span id="status_text">Connecting...</span></div>
+            <div class="sys-status">SYSTEM STATUS: <span id="status_text">OFFLINE</span></div>
+            
+            <div class="center-msg">Neuro-Drive<br>Control System</div>
 
-            <!-- <img id="video_feed" src="{{ url_for('video_feed') }}" alt="Video"> -->
-            <!-- 카메라 모듈 연결하면 위의 것, 
-            연결 없이 테스트할 땐 아래의 것 사용하면 됨. -->
-            <div id="video_placeholder">NO CAMERA LINK</div>
-            
-            
             <div class="dashboard">
                 <div class="dash-group">
                     <button id="btn_engine" onclick="toggleEngine()">START</button>
-                    <button id="btn_rec" onclick="toggleRec()">REC</button>
                 </div>
                 
                 <div class="dash-group" style="flex: 1;">
                     <div class="dash-row">
-                        <span>ENC: <span id="val_enc" class="val">0</span></span>
-                        <span>TEMP: <span id="val_temp" class="val">0.0</span>°C</span>
+                        <span>ENCODER: <span id="val_enc" class="val">0</span></span>
+                        <span>CPU TEMP: <span id="val_temp" class="val">0.0</span>°C</span>
                     </div>
                     <div class="dash-row">
-                        <span>LIMIT: <span id="val_limit" class="val">30</span>%</span>
+                        <span>POWER LIMIT: <span id="val_limit" class="val">30</span>%</span>
                         <input type="range" id="slider_limit" min="0" max="100" value="30" 
                                oninput="document.getElementById('val_limit').innerText=this.value">
                     </div>
@@ -151,7 +130,7 @@
             document.getElementById('status_text').style.color = "red";
         });
 
-        // 2. 조이스틱 설정 (오른쪽 패널 전체 사용)
+        // 2. 조이스틱 설정
         var manager = nipplejs.create({
             zone: document.getElementById('joystick_zone'),
             mode: 'static',
@@ -175,12 +154,11 @@
             send(0, 0);
         });
 
-        // 데이터 전송 (100ms)
+        // 데이터 전송 (100ms 주기)
         setInterval(() => { if(active) send(cmd.t, cmd.s); }, 100);
 
         function send(t, s) {
             const limit = document.getElementById('slider_limit').value / 100;
-            // volatile 사용으로 렉 방지
             socket.volatile.emit('control_command', {
                 throttle: parseFloat((t * limit).toFixed(2)),
                 steering: parseFloat(s.toFixed(2))
@@ -195,17 +173,10 @@
             else { btn.innerText = "START"; btn.classList.remove('active'); }
         });
 
-        function toggleRec() { socket.emit('toggle_recording'); }
-        socket.on('recording_update', (d) => {
-            const btn = document.getElementById('btn_rec');
-            if(d.recording) { btn.innerText = "STOP"; btn.classList.add('active'); }
-            else { btn.innerText = "REC"; btn.classList.remove('active'); }
-        });
-
         socket.on('encoder_update', (d) => { document.getElementById('val_enc').innerText = d.speed; });
         socket.on('status_update', (d) => { document.getElementById('val_temp').innerText = d.cpu_temp.toFixed(1); });
 
-        // 확대 방지
+        // 더블클릭 확대 방지
         document.addEventListener('dblclick', (e) => { e.preventDefault(); }, { passive: false });
     </script>
 </body>
