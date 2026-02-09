@@ -1,6 +1,6 @@
 import sys
 import time
-import serial
+# import serial
 import cv2
 import eventlet
 import os
@@ -8,24 +8,37 @@ import datetime
 import csv
 from eventlet.semaphore import Semaphore
 eventlet.monkey_patch()
+#serial 빼고 아래 것들이 추가
+import socket
+import struct
+
 
 from flask import Flask, render_template, Response
 from flask_socketio import SocketIO, emit
 
-serial_lock = Semaphore(1)
+#serial은 이제 cpp으로 이전했다고 보면 된다
+#원래 아래에 lock은 race condition발생해서 해결하려고 추가했었음
+# 새로 만든 cpp 코드에는 멀티 스레드로 미리 예방했다.
+# serial_lock = Semaphore(1)
 
 # ==========================================
 # 1. 설정 (Configuration)
 # ==========================================
-SERIAL_PORT = '/dev/ttyACM0'
+# SERIAL_PORT = '/dev/ttyACM0'
 BAUD_RATE = 115200
 STEERING_FACTOR = 900
 CENTER_PWM = 1500   
 
+CPP_UDP_IP = "127.0.0.1"   # C++가 같은 라즈베리파이에서 돌면 127.0.0.1
+CPP_UDP_PORT = 5555
+
+udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+
 app = Flask(__name__, static_folder='static', template_folder='templates')
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
-stm32_serial = None
+# stm32_serial = None
 engine_running = False 
 camera = None
 
@@ -123,46 +136,53 @@ def sys_log(msg, type="INFO"):
     socketio.emit('system_log', {'type': type, 'log': formatted_msg})
     # 받아주고
 
-def connect_serial():
-    global stm32_serial
-    try:
-        stm32_serial = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1)
-        stm32_serial.flushInput()
-        sys_log(f"Connected to STM32 on {SERIAL_PORT}", "SUCCESS")
-        return True
-    except Exception as e:
-        sys_log(f"Serial Connection Failed: {e}", "ERROR")
-        return False
+# def connect_serial():
+#     global stm32_serial
+#     try:
+#         stm32_serial = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1)
+#         stm32_serial.flushInput()
+#         sys_log(f"Connected to STM32 on {SERIAL_PORT}", "SUCCESS")
+#         return True
+#     except Exception as e:
+#         sys_log(f"Serial Connection Failed: {e}", "ERROR")
+#         return False
 
-def send_to_stm32(speed, angle):
-    with serial_lock: 
-        if stm32_serial and stm32_serial.is_open:
-            try:
-                command = f"{speed},{angle}\n"
-                stm32_serial.write(command.encode())
-            except Exception as e:
-                print(f"Serial Write Error: {e}")
+# def send_to_stm32(speed, angle):
+#     with serial_lock: 
+#         if stm32_serial and stm32_serial.is_open:
+#             try:
+#                 command = f"{speed},{angle}\n"
+#                 stm32_serial.write(command.encode())
+#             except Exception as e:
+#                 print(f"Serial Write Error: {e}")
+
+#cpp으로
+def send_to_cpp(throttle, steering):
+    # C++ Packet { float th; float st; } 와 동일하게 8바이트 전송
+    pkt = struct.pack('<ff', float(throttle), float(steering))
+    udp_sock.sendto(pkt, (CPP_UDP_IP, CPP_UDP_PORT))
+
 
 # ==========================================
 # 4. 백그라운드 태스크
 # ==========================================
-def read_serial_task():
-    global stm32_serial
-    print("[Task] Serial Listener Started")
-    while True:
-        if stm32_serial and stm32_serial.is_open:
-            try:
-                if stm32_serial.in_waiting > 0:
-                    try:
-                        line = stm32_serial.readline().decode('utf-8', errors='ignore').strip()
-                        if line.startswith("ENC:"):
-                            val_str = line.split(":")[1]
-                            socketio.emit('encoder_update', {'speed': int(val_str)})
-                    except ValueError:
-                        pass
-            except Exception as e:
-                print(f"Serial Read Error: {e}")
-        socketio.sleep(0.01)
+# def read_serial_task():
+#     global stm32_serial
+#     print("[Task] Serial Listener Started")
+#     while True:
+#         if stm32_serial and stm32_serial.is_open:
+#             try:
+#                 if stm32_serial.in_waiting > 0:
+#                     try:
+#                         line = stm32_serial.readline().decode('utf-8', errors='ignore').strip()
+#                         if line.startswith("ENC:"):
+#                             val_str = line.split(":")[1]
+#                             socketio.emit('encoder_update', {'speed': int(val_str)})
+#                     except ValueError:
+#                         pass
+#             except Exception as e:
+#                 print(f"Serial Read Error: {e}")
+#         socketio.sleep(0.01)
 
 def status_monitor_task():
     print("[Task] Monitor Started")
@@ -202,7 +222,10 @@ def handle_engine():
     status = "STARTED" if engine_running else "STOPPED"
     sys_log(f"Engine {status}", "SUCCESS" if engine_running else "WARN")
     emit('engine_update', {'running': engine_running})
-    if not engine_running: send_to_stm32(0, CENTER_PWM)
+    # if not engine_running: send_to_stm32(0, CENTER_PWM)
+    if not engine_running:
+        send_to_cpp(0.0, 0.0)
+
 
 # [NEW] 녹화 토글 핸들러 (폴더 생성 로직 포함)
 @socketio.on('toggle_recording')
@@ -237,31 +260,54 @@ def handle_recording():
         
     emit('recording_update', {'recording': recording})
 
+#==이게 이제 원래는 보정하는 코드였음
+#====근데 보정도 그냥 필요하면 cpp으로 옮기는 게 훨씬 나을 거 같음
+# @socketio.on('control_command')
+# def handle_control_command(data):
+#     global current_throttle, current_steering
+    
+#     if not engine_running: return
+#     try:
+#         throttle = float(data.get('throttle', 0))
+#         steering = float(data.get('steering', 0))
+        
+#         current_throttle = throttle
+#         current_steering = steering
+        
+#         if abs(steering) > 0.1:
+#             boost_factor = 1.0 + (abs(steering) * 0.8)
+#             throttle = throttle * boost_factor
+        
+#         pwm_speed = int(throttle * 999)
+#         pwm_speed = max(-999, min(999, pwm_speed))
+
+#         pwm_angle = int(CENTER_PWM + (steering * STEERING_FACTOR))
+#         pwm_angle = max(600, min(2400, pwm_angle))
+        
+#         # send_to_stm32(pwm_speed, pwm_angle)
+#         send_to_cpp(throttle, steering)
+
+#     except Exception:
+#         pass
 @socketio.on('control_command')
 def handle_control_command(data):
     global current_throttle, current_steering
-    
-    if not engine_running: return
+    if not engine_running:
+        return
+
     try:
-        throttle = float(data.get('throttle', 0))
-        steering = float(data.get('steering', 0))
-        
+        throttle = float(data.get('throttle', 0.0))
+        steering = float(data.get('steering', 0.0))
+
         current_throttle = throttle
         current_steering = steering
-        
-        if abs(steering) > 0.1:
-            boost_factor = 1.0 + (abs(steering) * 0.8)
-            throttle = throttle * boost_factor
-        
-        pwm_speed = int(throttle * 999)
-        pwm_speed = max(-999, min(999, pwm_speed))
 
-        pwm_angle = int(CENTER_PWM + (steering * STEERING_FACTOR))
-        pwm_angle = max(600, min(2400, pwm_angle))
-        
-        send_to_stm32(pwm_speed, pwm_angle)
+        # 보정 없음: 그대로 C++로 전달
+        send_to_cpp(throttle, steering)
+
     except Exception:
         pass
+
 
 if __name__ == '__main__':
     print("Starting Neuro-Driver Async Server with Session Recording...")

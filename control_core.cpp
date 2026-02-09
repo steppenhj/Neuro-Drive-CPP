@@ -1,149 +1,173 @@
 /**
  * @file control_core.cpp
- * @brief Neuro-Drive Main Control Process
- * @details Receives UDP from Python, Calculates Logic, Sends UART to STM32
+ * @brief Multi-threaded Control Architecture (Safety Enhanced)
+ * @details 
+ * Thread 1: UDP Receiver (Blocking I/O)
+ * Thread 2: Control Loop (Fixed Frequency 100Hz)
+ * Feature: Watchdog Timer (Auto-stop on signal loss)
  */
 
- #include <iostream>
- #include <string>
- #include <cstring>
- #include <cmath>
- #include <unistd.h>
- #include <fcntl.h>
- #include <termios.h>
- #include <sys/socket.h>
- #include <netinet/in.h>
- #include <arpa/inet.h>
+#include <iostream>
+#include <stdio.h>
+#include <thread> // 멀티스레드
+#include <mutex>  // 자원 보호
+#include <chrono> // 시간 제어
+#include <atomic> // 플래그용
+#include <cstdint>
+#include <cstring>
+#include <cmath>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <termios.h>
 
- //설정 상수
- #define UDP_PORT 5555
- #define SERIAL_PORT "/dev/ttyACM0"
- #define BAUDRATE B115200
+using namespace std;
 
- #define CENTER_PWM 1500
- #define STEERING_FACTOR 900 // 조향 감도
+// 1. 공유 자원
+struct SharedMemory{
+    float throttle = 0.0f;
+    float steering = 0.0f;
+    bool is_active = false;
+};
 
- //Python과 맞춘 데이터 구조체 (8bytes)
- struct ControlPacket{
-    float throttle; // -1.0 ~ 1.0
-    float steering; // -1.0 ~ 1.0
- };
+SharedMemory shared_data; 
+mutex data_lock; 
 
- // 시리얼 포트 설정 함수
- //이 부분은 llm한테 받은 그대로 쓰기. 어려움. 
- int open_serial(const char* device){
+// 프로그램 종료 플래그
+atomic<bool> keep_running(true);
+
+// ★ 안전장치 설정 (0.5초 동안 데이터 없으면 정지)
+const int WATCHDOG_MS = 500;
+atomic<int64_t> last_rx_us{0};
+
+// 현재 시간(마이크로초) 가져오기
+static inline int64_t now_us(){
+    using namespace std::chrono;
+    return duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count();
+}
+
+// 2. 시리얼 설정 함수
+int open_serial(const char* device){
     int fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY);
-    if(fd==-1){
-        perror("open_serial: Unalbe to open device");
-        return -1;
-    }
-
+    if(fd == -1) return -1;
     struct termios options;
     tcgetattr(fd, &options);
-
-    cfsetispeed(&options, BAUDRATE);
-    cfsetospeed(&options, BAUDRATE);
-
-    options.c_cflag |= (CLOCAL | CREAD); // 수신 가능, 로컬 연결
-    options.c_cflag &= ~PARENB; // No parity
-    options.c_cflag &= ~CSTOPB; // 1 stop bit
+    cfsetispeed(&options, B115200);
+    cfsetospeed(&options, B115200);
+    options.c_cflag |= (CLOCAL | CREAD);
+    options.c_cflag &= ~PARENB;
+    options.c_cflag &= ~CSTOPB;
     options.c_cflag &= ~CSIZE;
-    options.c_cflag |= CS8; // 8Data bits
-
-
-    //Raw 모드 설정 (이게 없으면 바이너리 전송 시에 문제될 수도)
+    options.c_cflag |= CS8;
     options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
     options.c_oflag &= ~OPOST;
-
     tcsetattr(fd, TCSANOW, &options);
     return fd;
- }
+}
 
- int main(){
-    std::cout << "[Neuro-Drive] C++ Control Core Starting.." << std::endl;
-
-    // 1. 시리얼 포트 열기.
-    int serial_fd = open_serial(SERIAL_PORT);
-    if(serial_fd < 0) return -1;
-    std::cout << "[Info] STM32 Serial Connected." << std::endl;
-
-    //2. UDP 소켓 생성 (Receiver)
+// 3. 스레드1: UDP 수신 (데이터 받으면 시간 기록)
+void udp_receiver_task(){
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if(sockfd < 0){
-        perror("socket creation failed");
-        return -1;
-    }
-
-    struct sockaddr_in servaddr, cliaddr;
-    memset(&servaddr, 0, sizeof(servaddr));
-    memset(&cliaddr, 0, sizeof(cliaddr));
-
+    sockaddr_in servaddr{}, cliaddr{};
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = INADDR_ANY;
-    servaddr.sin_port = htons(UDP_PORT);
+    servaddr.sin_port = htons(5555);
 
-    if(bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr)) < 0){
-        perror("bind failed");
+    bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr));
+
+    // 수신 타임아웃 1초
+    struct timeval tv = {1, 0};
+    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+
+    cout << "[Thread 1] UDP Receiver Started." << endl;
+
+    struct Packet { float th; float st; } pkt;
+    socklen_t len = sizeof(cliaddr);
+
+    while(keep_running){
+        int n = recvfrom(sockfd, &pkt, sizeof(pkt), 0, (struct sockaddr *)&cliaddr, &len);
+
+        if(n > 0){
+            lock_guard<mutex> lock(data_lock);
+            shared_data.throttle = pkt.th;
+            shared_data.steering = pkt.st;
+            shared_data.is_active = true;
+            
+            // ★ 데이터 수신 시각 갱신 (Watchdog Reset)
+            last_rx_us.store(now_us(), std::memory_order_relaxed);
+        }
+    }
+    close(sockfd);
+}
+
+// 4. 스레드2: 제어 루프 (100Hz + Watchdog 기능)
+void control_loop_task(int serial_fd){
+    cout << "[Thread 2] Control Loop Started (100Hz)." << endl;
+    char buffer[64];
+
+    // 정밀 타이밍용 변수
+    using clock = std::chrono::steady_clock;
+    auto next_tick = clock::now();
+
+    while(keep_running){
+        // 10ms (100Hz) 주기 설정
+        next_tick += std::chrono::milliseconds(10);
+
+        // ★ Watchdog 체크: 마지막 수신 후 500ms 지났는지 확인
+        int64_t age_us = now_us() - last_rx_us.load(std::memory_order_relaxed);
+        bool timeout = (age_us > (int64_t)WATCHDOG_MS * 1000);
+
+        float th_local = 0;
+        float st_local = 0;
+
+        {
+            lock_guard<mutex> lock(data_lock);
+            th_local = shared_data.throttle;
+            st_local = shared_data.steering;
+        }
+
+        // ★ 타임아웃이면 강제 정지 (안전장치)
+        if(timeout){
+            th_local = 0.0f;
+            st_local = 0.0f;
+            // (옵션) 타임아웃 로그가 너무 많이 뜨면 주석 처리 가능
+            // cout << "[WARN] Watchdog Timeout! Stopping..." << endl;
+        }
+
+        // 제어 연산
+        int pwm_speed = (int)(th_local * 999.0f);
+        int pwm_angle = 1500 + (int)(st_local * 900.0f);
+
+        // 시리얼 전송
+        int len = snprintf(buffer, sizeof(buffer), "%d,%d\n", pwm_speed, pwm_angle);
+        write(serial_fd, buffer, len);
+
+        // 남은 시간만큼 대기 (정밀 주기 유지)
+        std::this_thread::sleep_until(next_tick);
+    }
+}
+
+int main(){
+    // ★ 포트 이름 확인 (/dev/ttyACM0 또는 /dev/ttyUSB0)
+    int serial_fd = open_serial("/dev/ttyACM0"); 
+    if(serial_fd < 0){
+        cerr << "Error: Serial Open Failed. Check Permission or Port Name." << endl;
         return -1;
     }
 
-    std::cout << "[Info] Waiting for UDP Data on port" << UDP_PORT << "..." << std::endl;
+    // 초기화: 시작하자마자 멈추지 않게 현재 시간 기록
+    last_rx_us.store(now_us(), std::memory_order_relaxed);
 
-    ControlPacket packet;
-    char buffer[1024]; // 시리ㄹ얼 송신 버퍼
-    socklen_t len = sizeof(cliaddr);
+    thread receiver(udp_receiver_task);
+    thread controller(control_loop_task, serial_fd);
 
-    // Watchdog용 타임아웃 설정 (UDP 수신 대기 시)
-    struct timeval tv;
-    tv.tv_sec = 0;
-    tv.tv_usec = 500000; // 500ms
-    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+    cout << "[Main] System Running. Press Ctrl+C to stop." << endl;
 
-    while(true){
-        //3. 데이터 수신(blocking with timeout)
-        int n = recvfrom(sockfd, &packet, sizeof(packet), 0, (struct sockaddr *)&cliaddr, &len);
-
-        if(n==sizeof(ControlPacket)){
-            // [Logic migration] 파이썬에 잇던 로직을 여기에서 수행
-            float throttle = packet.throttle;
-            float steering = packet.steering;
-
-            //Boost Factor Logic
-            // 조향 많이할수록 출력 높여서 stall 방지.
-            // 일단 넣고 추후에 필요 없다 싶으면 제거하면 됨
-            if(std::abs(steering) > 0.1f){
-                float boost_factor = 1.0f + (std::abs(steering) * 0.8f);
-                throttle = throttle * boost_factor;
-            }
-
-            // PWM Mapping
-            int pwm_speed = (int)(throttle * 999.0f);
-            //Clamp(-999 ~ 999)
-            if(pwm_speed > 999) pwm_speed = 999;
-            if(pwm_speed < -999) pwm_speed = -999;
-
-            int pwm_angle = CENTER_PWM + (int)(steering * STEERING_FACTOR);
-            //Clamp(600 ~ 2400)
-            if (pwm_angle > 2400) pwm_angle =2400;
-            if(pwm_angle < 600) pwm_angle = 600;
-
-            // 4. stm32로 전송("speed,angle\n" 포맷. 일단 십진수 쓰는데 나중에 16진수 쓸까 고민중이긴 함.)
-            int len = snprintf(buffer, sizeof(buffer), "%d,%d\n", pwm_speed, pwm_angle);
-            write(serial_fd, buffer, len);
-
-            //debug (너무 많으면 주석 처리하자. 일단 처음에도 주석처리임. 버그있으면 이거 풀어서 확인하면됨)
-            // printf("In(%.2f, %.2f) -> Out(%d %d)\n", packet.throttle, packet.steering, pwm_speed, pwm_angle);
-        }
-        else{
-            // Timeout or Error (500ms 동안 파이썬에서 데이터가 안 오면)
-            // 안전을 위해 정지 명령 전송
-            // snprintf(buffer, sizeof(buffer), "0,1500\n");
-            // write(serial_fd, buffer, strlen(buffer));
-            // std::cout << "[Warn] No Signal... Stopping." << std::endl; 
-        }
-    }
+    receiver.join();
+    controller.join();
 
     close(serial_fd);
-    close(sockfd);
     return 0;
- }
+}
