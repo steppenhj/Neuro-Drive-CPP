@@ -1,7 +1,7 @@
 /* USER CODE BEGIN Header */
 /**
-  * @brief          : 인터럽트해보자. 
-  * @note           : 
+  * @brief          : 인터럽트해보자.
+  * @note           :
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
@@ -39,6 +39,7 @@ typedef struct {
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 
@@ -78,6 +79,10 @@ uint8_t buf_index = 0;
 
 // 큐 핸들 선언
 osMessageQueueId_t myQueueHandle;
+
+//엔코더 설정 전역변수
+volatile int16_t current_speed_rpm = 0; //계산된 속도(부호 있는 것)
+uint16_t last_encoder_count = 0; //이전 카운터 값 저장용
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -86,6 +91,7 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM1_Init(void);
 void StartDefaultTask(void *argument);
 void StartTask02(void *argument);
 void StartTask03(void *argument);
@@ -131,6 +137,7 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
   // ★ [긴급 추가] 타이머 3번 전원 강제 공급
     __HAL_RCC_TIM3_CLK_ENABLE();
@@ -150,7 +157,7 @@ int main(void)
     // 인터럽트 수신 시작( 한 글자 들어오면 인터럽트 발생해라는 느낌)
     // 이것도 옮겨야함
 
-    /* USER CODE END 2 */
+  /* USER CODE END 2 */
 
   /* Init scheduler */
   osKernelInitialize();
@@ -253,6 +260,56 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 0;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 65535;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 0;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 0;
+  if (HAL_TIM_Encoder_Init(&htim1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+
+}
+
+/**
   * @brief TIM2 Initialization Function
   * @param None
   * @retval None
@@ -271,7 +328,7 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 99;
+  htim2.Init.Prescaler = 1399;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 999;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -527,6 +584,14 @@ void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
   HAL_UART_Receive_IT(&huart2, &rx_data, 1);
+  //2번 uart 장치 사용
+  //rx_data변수에 데이터 담기
+  // 1바이트만 와도 알리기.
+  // IT의 의미는 interrupt
+  //"300,1500\n"이 왔다고 가정하면
+  // '3'이 제일 먼저 도착하고 rx_data에 3 저장
+  // 1개 왔으니깐 interrupt를 검.
+  // 하던 일 멈추고 콜백 함수 HAL_UART_RxCpltCallback으로 점프
 
   /* Infinite loop */
   for(;;)
@@ -597,86 +662,95 @@ void StartDefaultTask(void *argument)
 void StartTask02(void *argument)
 {
   /* USER CODE BEGIN StartTask02 */
-	// 받을 빈 상자 준비
-	MotorCommand_t rcv_msg;
+  // 받을 빈 상자 준비
+  MotorCommand_t rcv_msg;
 
   int current_speed = 0;
   int current_angle = 1500;
 
-  //성능 측정용 변수
+  // 성능 측정용 변수
   uint32_t last_wake_time = osKernelGetTickCount();
   uint32_t current_time = 0;
   uint32_t time_diff = 0;
-  //통계용
+
+  // 통계용
   uint32_t max_jitter = 0;
   uint32_t min_jitter = 9999;
   uint32_t loop_count = 0;
 
+  // ★ 1. 엔코더 하드웨어 시작
+  HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);
+
+  // ★ 2. 초기값 설정
+  last_encoder_count = __HAL_TIM_GET_COUNTER(&htim1);
+
   /* Infinite loop */
   for(;;)
   {
-	  //(1) 측정 시작
-	  current_time = osKernelGetTickCount();
-	  time_diff = current_time - last_wake_time;
-	  last_wake_time = current_time;
+      // (1) 주기적 실행 보장을 위한 시간 측정
+      current_time = osKernelGetTickCount();
+      time_diff = current_time - last_wake_time;
 
-	  //(2) 통계 집계 (처음 10번은 무시)
-	  if(loop_count > 10){
-		  if(time_diff > max_jitter) max_jitter = time_diff;
-		  if(time_diff < min_jitter) min_jitter = time_diff;
-	  }
-	  loop_count++;
+      // (2) 통계 집계
+      if(loop_count > 10){
+          if(time_diff > max_jitter) max_jitter = time_diff;
+          if(time_diff < min_jitter) min_jitter = time_diff;
+      }
+      loop_count++;
 
-	  //(3) 데이터 출력 - 100번(약 2초)마다 리포트 출력
-	  // "현재주기, 최대지연, 최소지연" csv 로 뽑음
-	  if(loop_count % 100 == 0){
-		  printf("PERF: %lu, MAX: %lu, MIN: %lu\r\n", time_diff, max_jitter, min_jitter);
-		  //측정값 다시 초기화 (구간별 측정위해)
-		  max_jitter = 0;
-		  min_jitter = 9999;
-	  }
-    // 1. 전역 변수 읽기 (통신 태스크가 받아온 값)
-//    current_speed = speed_cmd;
-//    current_angle = angle_us;
-	  // 큐에서 데이터 꺼내기
-	  // 데이터가 없으면 여기서 멈춰서 (Block) 기다림 (osWaitForever)
-	  // 데이터가 오면 꺠어나서 아래 코드를 실행
-	  osStatus_t status = osMessageQueueGet(myQueueHandle, &rcv_msg, NULL, 0);
+      // ---------------------------------------------------------
+      // ★ 엔코더 속도 계산 로직
+      // ---------------------------------------------------------
+      uint16_t current_count = __HAL_TIM_GET_COUNTER(&htim1);
+      int16_t diff = (int16_t)(current_count - last_encoder_count);
+      current_speed_rpm = diff;
+      last_encoder_count = current_count;
+      // ---------------------------------------------------------
 
-	  if(status == osOK){
-		  current_speed = rcv_msg.speed;
-		  current_angle = rcv_msg.angle;
-	  }
+      // (3) 데이터 수신 및 처리 (순서 수정됨)
+      // 먼저 큐를 확인합니다.
+      osStatus_t status = osMessageQueueGet(myQueueHandle, &rcv_msg, NULL, 0);
 
-    // 2. DC 모터 방향 및 속도 제어
-    if (current_speed > MOTOR_PWM_MAX) current_speed = MOTOR_PWM_MAX;
-    if (current_speed < -MOTOR_PWM_MAX) current_speed = -MOTOR_PWM_MAX;
+      // 데이터가 "있으면" (osOK)
+      if(status == osOK){
+          // 1. 변수 갱신
+          current_speed = rcv_msg.speed;
+          current_angle = rcv_msg.angle;
 
-    if (current_speed > 0) {
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);   // 전진
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
-        __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)current_speed);
-    } else if (current_speed < 0) {
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET); // 후진
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
-        __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)abs(current_speed));
-    } else {
-        // 정지
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
-        __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 0);
-    }
+          // 2. ★ 로그 출력 (명령 받았을 때만 찍힘)
+          printf("CMD_RECV: Speed=%d, Angle=%d\r\n", current_speed, current_angle);
+      }
 
-    // 3. 서보 모터 제어
-    if (current_angle < SERVO_MIN_US) current_angle = SERVO_MIN_US;
-    if (current_angle > SERVO_MAX_US) current_angle = SERVO_MAX_US;
-    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, (uint32_t)current_angle);
+      // ---------------------------------------------------------
+      // 모터 구동 로직
+      // ---------------------------------------------------------
 
-    last_wake_time = current_time;
-    osDelayUntil(last_wake_time + 20);
+      // DC 모터 제어
+      if (current_speed > MOTOR_PWM_MAX) current_speed = MOTOR_PWM_MAX;
+      if (current_speed < -MOTOR_PWM_MAX) current_speed = -MOTOR_PWM_MAX;
 
-    // 100Hz 주기
-//    osDelay(10);
+      if (current_speed > 0) {
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
+          __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)current_speed);
+      } else if (current_speed < 0) {
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
+          __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)abs(current_speed));
+      } else {
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
+          __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 0);
+      }
+
+      // 서보 모터 제어
+      if (current_angle < SERVO_MIN_US) current_angle = SERVO_MIN_US;
+      if (current_angle > SERVO_MAX_US) current_angle = SERVO_MAX_US;
+      __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, (uint32_t)current_angle);
+
+      // 주기 제어
+      last_wake_time = current_time;
+      osDelayUntil(last_wake_time + 10);
   }
   /* USER CODE END StartTask02 */
 }
@@ -695,7 +769,7 @@ void StartTask03(void *argument)
   for(;;)
   {
     // 500ms 동안 명령 없으면 정지
-    if (HAL_GetTick() - last_command_time > 500)
+    if (HAL_GetTick() - last_command_time > 50000)
     {
 //        speed_cmd = 0; // 다음 루프에서 모터 태스크가 멈추게 함
 

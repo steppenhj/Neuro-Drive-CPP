@@ -160,6 +160,8 @@
         function send(t, s) {
             const limit = document.getElementById('slider_limit').value / 100;
             socket.volatile.emit('control_command', {
+                //volatile은 네트워크 지연 시에 최신 데이터를 보내기위함으로 추가
+                // 어찌됐든 control_command 라는 이름으로 보냄
                 throttle: parseFloat((t * limit).toFixed(2)),
                 steering: parseFloat(s.toFixed(2))
             });
@@ -167,6 +169,7 @@
 
         // 3. 버튼 및 데이터 핸들러
         function toggleEngine() { socket.emit('toggle_engine'); }
+        //def handle_engine(): 으로 이동하는 것임. 
         socket.on('engine_update', (d) => {
             const btn = document.getElementById('btn_engine');
             if(d.running) { btn.innerText = "STOP"; btn.classList.add('active'); }
