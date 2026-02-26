@@ -6,6 +6,8 @@ import eventlet #비동기 처리 라이브러리
 import os
 from eventlet.semaphore import Semaphore
 
+import serial
+
 #표준 라이브러리를 비동기 방식에 맞게 바꾸는 거임
 eventlet.monkey_patch()
 
@@ -32,6 +34,25 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 # 아래 변수는 index.html에 요청에 의해서 바뀜
 #처음에는 false로 설정해둠(껐다는 의미). 이것도 하나의 안전장치임.
 engine_running = False 
+
+#2/26추가. 엔코더 받기
+feedback_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+feedback_sock.bind(('127.0.0.1', 5556))
+feedback_sock.settimeout(1.0)
+
+def encoder_monitor_task():
+    while True:
+        try:
+            data, _ = feedback_sock.recvfrom(64)
+            line = data.decode('utf-8', errors='ignore').strip()
+            if line.startswith("ENC:"):
+                speed = int(line.split(":")[1])
+                socketio.emit('encoder_update', {'speed': speed})
+        except:
+            pass
+        socketio.sleep(0)
+
+socketio.start_background_task(encoder_monitor_task)
 
 # ==========================================
 # 2. 시스템 기능

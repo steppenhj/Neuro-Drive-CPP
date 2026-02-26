@@ -176,7 +176,7 @@
             else { btn.innerText = "START"; btn.classList.remove('active'); }
         });
 
-        socket.on('encoder_update', (d) => { document.getElementById('val_enc').innerText = d.speed; });
+        socket.on('encoder_update', (d) => { document.getElementById('val_enc').innerText = -d.speed; });
         socket.on('status_update', (d) => { document.getElementById('val_temp').innerText = d.cpu_temp.toFixed(1); });
 
         // 더블클릭 확대 방지

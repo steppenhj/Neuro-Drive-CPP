@@ -19,6 +19,7 @@
 #include <netinet/in.h>
 #include <fcntl.h>
 #include <termios.h>
+#include <arpa/inet.h>
 
 using namespace std;
 
@@ -118,10 +119,22 @@ private:
     std::thread controlThread;
     const int WATCHDOG_MS = 500;
 
+    //엔코더 받기
+    int feedback_sock;  
+    sockaddr_in feedback_addr{};
+
     // 시리얼 포트 설정 함수 (내부용)
     bool openSerial(){
         serial_fd = open(device_name.c_str(), O_RDWR | O_NOCTTY | O_NDELAY);
         if(serial_fd == -1) return false;
+
+        // *********VehicleController private에 추가
+        //*********엔코더 받기 */
+        // openSerial() 호출 후, 생성자에서 피드백 소켓 초기화
+        feedback_sock = socket(AF_INET, SOCK_DGRAM, 0);
+        feedback_addr.sin_family = AF_INET;
+        feedback_addr.sin_port = htons(5556); // 피드백 전용 포트
+        inet_pton(AF_INET, "127.0.0.1", &feedback_addr.sin_addr);
 
         termios options{};
         tcgetattr(serial_fd, &options);
@@ -179,6 +192,19 @@ private:
             int len = snprintf(buffer, sizeof(buffer), "%d,%d\n", pwm_speed, pwm_angle);
             if(serial_fd != -1){
                 write(serial_fd, buffer, len);
+            }
+
+            // controlLoop 안, write() 바로 다음에 추가
+            //***********엔코더 받기 */
+            char read_buf[64];
+            int n = read(serial_fd, read_buf, sizeof(read_buf)-1);
+            if(n > 0){
+                read_buf[n] = '\0';
+                if(strncmp(read_buf, "ENC:", 4) == 0){
+                    // UDP로 Python에 역전송
+                    sendto(feedback_sock, read_buf, n, 0,
+                        (struct sockaddr*)&feedback_addr, sizeof(feedback_addr));
+                }
             }
 
             //5. 정밀 주기 대기
