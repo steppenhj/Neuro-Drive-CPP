@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <termios.h>
 #include <arpa/inet.h>
+#include <vector>
 
 using namespace std;
 
@@ -32,6 +33,12 @@ struct SharedContext {
     std::atomic<int64_t> last_rx_us{0}; //WatchDog 타이머용 (마지막 수신 시간)
     std::atomic<bool> keep_running{true}; //프로그램 종료 플래그
 
+    //****PID제어, RTH 변수 추가 */
+    std::atomic<int> rth_mode{0}; //0=일반, 1=기록중, 2=복귀중
+    std::vector<std::pair<int, int>> path; // {엔코더diff, 서보각도}
+    std::mutex path_mutex; //path 보호용
+    int last_encoder_diff = 0;  //마지막 엔코더 값 저장
+
     //현재 시간 (us) 가져오기 유틸리티
     static int64_t now_us(){
         return std::chrono::duration_cast<std::chrono::microseconds>(
@@ -39,6 +46,8 @@ struct SharedContext {
         ).count();
     }
 };
+
+
 
 // 2. UDP 수신 클래스 (Receiver)
 class UdpReceiver{
@@ -55,7 +64,11 @@ private:
         socklen_t len = sizeof(cliaddr);
 
         //파이썬과 약속한 데이터 구조체
-        struct Packet { float th; float st; } pkt;
+        // struct Packet { float th; float st; } pkt;
+
+        //위에 구조체를 바꾸게 됐음
+        // 왜냐하면 RTH 기능을 PID 제어로 할 거라서
+        struct Packet { float th; float st; int mode; } pkt;
 
         while(ctx.keep_running){
             //Blocking Receive
@@ -69,6 +82,9 @@ private:
 
                 //WatchDog 시간 갱신 (atomic이라 mutex 필요 없음)
                 ctx.last_rx_us.store(SharedContext::now_us(), std::memory_order_relaxed);
+
+                //mode처리 (RTH)
+                ctx.rth_mode.store(pkt.mode, std::memory_order_relaxed);
             }
         }
     }
@@ -201,9 +217,40 @@ private:
             if(n > 0){
                 read_buf[n] = '\0';
                 if(strncmp(read_buf, "ENC:", 4) == 0){
+                    //***RTH추가 */
+                    int enc_val = atoi(read_buf + 4); //"ENC:15" -> 15
+                    ctx.last_encoder_diff = enc_val;
+
+                    //기록중이면 path에 쌓기
+                    if(ctx.rth_mode.load() == 1){
+                        std::lock_guard<std::mutex> lock(ctx.path_mutex);
+                        int pwm_angle_now = 1500 + (int)(current_st * 900.0f);
+                        ctx.path.push_back({enc_val, pwm_angle_now});
+                    }
+
+
                     // UDP로 Python에 역전송
                     sendto(feedback_sock, read_buf, n, 0,
                         (struct sockaddr*)&feedback_addr, sizeof(feedback_addr));
+                }
+            }
+
+            //RTH기능  
+            // !timeout 추가. 
+            if (ctx.rth_mode.load() == 2 && !timeout){
+                std::lock_guard<std::mutex> lock(ctx.path_mutex);
+                if(!ctx.path.empty()){
+                    auto [enc_target, angle] = ctx.path.back();
+                    ctx.path.pop_back();
+
+                    //역방향 명령 전송
+                    int reverse_speed = (enc_target > 0) ? -400 : 400;
+                    int len2 = snprintf(buffer, sizeof(buffer), "%d,%d\n", reverse_speed, angle);
+                    write(serial_fd, buffer, len2);
+                } else{
+                    //path 다 소진 -> 정지 (중요하지 이게 진짜)
+                    ctx.rth_mode.store(0, std::memory_order_relaxed);
+                    write(serial_fd, "0,1500\n", 7);
                 }
             }
 

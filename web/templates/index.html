@@ -95,6 +95,8 @@
             <div class="dashboard">
                 <div class="dash-group">
                     <button id="btn_engine" onclick="toggleEngine()">START</button>
+                    <button id="btn_rth" onclick="toggleRTH()">REC</button> 
+                    <!-- rth버튼 -->
                 </div>
                 
                 <div class="dash-group" style="flex: 1;">
@@ -169,6 +171,31 @@
 
         // 3. 버튼 및 데이터 핸들러
         function toggleEngine() { socket.emit('toggle_engine'); }
+
+        // RTH기능
+        let rthState = 0; //0=대기, 1=기록중, 2=복귀중
+
+        function toggleRTH() {
+            if(rthState === 0){
+                rthState = 1;
+                socket.emit('rth_command', {mode: 1});
+            } else if(rthState === 1) {
+                rthState = 2;
+                socket.emit('rth_command', {mode: 2});
+            } else{
+                rthState = 0;
+                socket.emit('rth_command', {mode: 0});
+            }
+        }
+
+        socket.on('rth_update', (d) => {
+            const btn = document.getElementById('btn_rth');
+            if(d.mode === 1) { btn.innerText = "REC●"; btn.classList.add('active'); }
+            else if(d.mode === 2) { btn.innerText = "RTH↩"; btn.classList.add('active'); }
+            else { btn.innerText = "REC"; btn.classList.remove('active'); }
+        });
+        //RTH버튼 누르면 디자인 쪼매 바꿔주기. 
+
         //def handle_engine(): 으로 이동하는 것임. 
         socket.on('engine_update', (d) => {
             const btn = document.getElementById('btn_engine');

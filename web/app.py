@@ -67,12 +67,14 @@ def sys_log(msg, type="INFO"):
     socketio.emit('system_log', {'type': type, 'log': formatted_msg})
 
 # C++ Core로 명령 전송 (UDP)
-def send_udp_command(throttle, steering):
+def send_udp_command(throttle, steering, mode=0):
     try:
         # C++ 구조체: struct Packet { float th; float st; };
         # Python: struct.pack('ff', ...) -> float 2개 (8바이트) 패킹
         #이진수 binary로 압축하는 걸로 보면 됨
-        packet = struct.pack('ff', float(throttle), float(steering))
+
+        #***이제 PID제어 -> RTH 기능을 추가함. RTH 모드를 패킷에 추가해야 함
+        packet = struct.pack('ffi', float(throttle), float(steering), int(mode))
         
         #sock.sendto: 만들어진 패킷을 5555번 포트로 휙 던진다(UDP)
         sock.sendto(packet, (UDP_IP, UDP_PORT))
@@ -130,8 +132,16 @@ def handle_engine():
     emit('engine_update', {'running': engine_running})
     
     # 엔진 끄면 즉시 정지 명령 전송, C++로
+    # rth모드 젤 끝에 0추가
     if not engine_running: 
-        send_udp_command(0.0, 0.0)
+        send_udp_command(0.0, 0.0, 0)
+
+#RTH 명령 핸들러
+@socketio.on('rth_command')
+def handle_rth(data):
+    mode = int(data.get('mode', 0))
+    send_udp_command(0.0, 0.0, mode)
+    emit('rth_update', {'mode':mode})
 
 #js에서 보낸 control_command 받으면 handle_control_command 함수 실행
 @socketio.on('control_command')
@@ -179,7 +189,8 @@ def handle_control_command(data):
         # print(f"[DEBUG] S: {steering:.2f} | T_Raw: {raw_throttle:.2f} -> T_Boost: {final_throttle:.2f}")
 
         # 4. C++ (UDP)로 전송
-        send_udp_command(final_throttle, steering)
+        # 0추가 : RHT모드
+        send_udp_command(final_throttle, steering, 0)
 
     except Exception as e:
         print(f"Control Error: {e}")
