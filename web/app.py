@@ -35,6 +35,11 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 #처음에는 false로 설정해둠(껐다는 의미). 이것도 하나의 안전장치임.
 engine_running = False 
 
+#rth watchdog문제 해결
+rth_active = False
+
+rth_mode_current = 0  # 전역 변수 추가
+
 #2/26추가. 엔코더 받기
 feedback_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 feedback_sock.bind(('127.0.0.1', 5556))
@@ -53,6 +58,24 @@ def encoder_monitor_task():
         socketio.sleep(0)
 
 socketio.start_background_task(encoder_monitor_task)
+
+#rth watchdog문제
+def rth_keep_alive_task():
+    while True:
+        if rth_active:
+            send_udp_command(0.0, 0.0, 2)
+        socketio.sleep(0.1)
+
+socketio.start_background_task(rth_keep_alive_task)
+
+@socketio.on('rth_command')
+def handle_rth(data):
+    global rth_active, rth_mode_current
+    mode = int(data.get('mode', 0))
+    rth_mode_current = mode
+    rth_active = (mode == 2)
+    send_udp_command(0.0, 0.0, mode)
+    emit('rth_update', {'mode': mode})
 
 # ==========================================
 # 2. 시스템 기능
@@ -136,12 +159,7 @@ def handle_engine():
     if not engine_running: 
         send_udp_command(0.0, 0.0, 0)
 
-#RTH 명령 핸들러
-@socketio.on('rth_command')
-def handle_rth(data):
-    mode = int(data.get('mode', 0))
-    send_udp_command(0.0, 0.0, mode)
-    emit('rth_update', {'mode':mode})
+
 
 #js에서 보낸 control_command 받으면 handle_control_command 함수 실행
 @socketio.on('control_command')
@@ -149,6 +167,7 @@ def handle_control_command(data):
 
     #엔진 변수 false이면 바로 return 해버림
     if not engine_running: return 
+    if rth_active: return #rth복귀중 조이스틱 무시
     try:
         # 1. 원본 데이터 받기. JSON 데이터 ({throttle:0.5, ...})을 뜯어내기
         raw_throttle = float(data.get('throttle', 0))
@@ -190,7 +209,7 @@ def handle_control_command(data):
 
         # 4. C++ (UDP)로 전송
         # 0추가 : RHT모드
-        send_udp_command(final_throttle, steering, 0)
+        send_udp_command(final_throttle, steering, rth_mode_current)
 
     except Exception as e:
         print(f"Control Error: {e}")

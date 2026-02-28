@@ -202,13 +202,17 @@ private:
             }
 
             //4. PWM 변환 및 전송
-            int pwm_speed = (int)(current_th * 999.0f);
-            int pwm_angle = 1500 + (int)(current_st * 900.0f);
+            if(ctx.rth_mode.load() != 2){
+                // RTH중 일반 명령 스킵
+                int pwm_speed = (int)(current_th * 999.0f);
+                int pwm_angle = 1500 + (int)(current_st * 900.0f);
 
-            int len = snprintf(buffer, sizeof(buffer), "%d,%d\n", pwm_speed, pwm_angle);
-            if(serial_fd != -1){
-                write(serial_fd, buffer, len);
+                int len = snprintf(buffer, sizeof(buffer), "%d,%d\n", pwm_speed, pwm_angle);
+                if(serial_fd != -1){
+                    write(serial_fd, buffer, len);
+                }
             }
+
 
             // controlLoop 안, write() 바로 다음에 추가
             //***********엔코더 받기 */
@@ -217,19 +221,35 @@ private:
             if(n > 0){
                 read_buf[n] = '\0';
                 if(strncmp(read_buf, "ENC:", 4) == 0){
-                    //***RTH추가 */
-                    int enc_val = atoi(read_buf + 4); //"ENC:15" -> 15
+                    int enc_val = atoi(read_buf + 4);
                     ctx.last_encoder_diff = enc_val;
-
-                    //기록중이면 path에 쌓기
+                    // path를 {enc_val, pwm_angle} 에서 {throttle_sign, pwm_angle}로 변경
                     if(ctx.rth_mode.load() == 1){
                         std::lock_guard<std::mutex> lock(ctx.path_mutex);
-                        int pwm_angle_now = 1500 + (int)(current_st * 900.0f);
-                        ctx.path.push_back({enc_val, pwm_angle_now});
+                        int throttle_sign = (current_th > 0.05f) ? 1 : (current_th < -0.05f) ? -1 : 0;
+                        if(throttle_sign != 0) {
+                            //정지구간이 직진으로 되는 걸 제외
+                            int pwm_angle_now = 1500 + (int)(current_st * 900.0f);
+                            ctx.path.push_back({throttle_sign, pwm_angle_now});
+                        }
+                    }
+                    // RTH 복귀도 여기서 처리 (20Hz 기준)
+                    if(ctx.rth_mode.load() == 2 && !timeout){
+                        std::lock_guard<std::mutex> lock(ctx.path_mutex);
+                        if(!ctx.path.empty()){
+                            auto [enc_target, angle] = ctx.path.back();
+                            ctx.path.pop_back();
+                            cout << "[RTH] enc_target: " << enc_target << endl;  // 추가
+                            int reverse_speed = (enc_target > 0) ? -600 : 600;
+                            int len2 = snprintf(buffer, sizeof(buffer), "%d,%d\n", reverse_speed, angle);
+                            write(serial_fd, buffer, len2);
+                            cout << "[RTH] ACTIVE, path size: " << ctx.path.size() << endl;
+                        } else {
+                            ctx.rth_mode.store(0, std::memory_order_relaxed);
+                            write(serial_fd, "0,1500\n", 7);
+                        }
                     }
 
-
-                    // UDP로 Python에 역전송
                     sendto(feedback_sock, read_buf, n, 0,
                         (struct sockaddr*)&feedback_addr, sizeof(feedback_addr));
                 }
@@ -237,22 +257,23 @@ private:
 
             //RTH기능  
             // !timeout 추가. 
-            if (ctx.rth_mode.load() == 2 && !timeout){
-                std::lock_guard<std::mutex> lock(ctx.path_mutex);
-                if(!ctx.path.empty()){
-                    auto [enc_target, angle] = ctx.path.back();
-                    ctx.path.pop_back();
+            // if (ctx.rth_mode.load() == 2 && !timeout){
+            //     std::lock_guard<std::mutex> lock(ctx.path_mutex);
+            //     cout << "[RTH] ACTIVE, path size: " << ctx.path.size() << endl;
+            //     if(!ctx.path.empty()){
+            //         auto [enc_target, angle] = ctx.path.back();
+            //         ctx.path.pop_back();
 
-                    //역방향 명령 전송
-                    int reverse_speed = (enc_target > 0) ? -400 : 400;
-                    int len2 = snprintf(buffer, sizeof(buffer), "%d,%d\n", reverse_speed, angle);
-                    write(serial_fd, buffer, len2);
-                } else{
-                    //path 다 소진 -> 정지 (중요하지 이게 진짜)
-                    ctx.rth_mode.store(0, std::memory_order_relaxed);
-                    write(serial_fd, "0,1500\n", 7);
-                }
-            }
+            //         //역방향 명령 전송
+            //         int reverse_speed = (enc_target > 0) ? -600 : 600;
+            //         int len2 = snprintf(buffer, sizeof(buffer), "%d,%d\n", reverse_speed, angle);
+            //         write(serial_fd, buffer, len2);
+            //     } else{
+            //         //path 다 소진 -> 정지 (중요하지 이게 진짜)
+            //         ctx.rth_mode.store(0, std::memory_order_relaxed);
+            //         write(serial_fd, "0,1500\n", 7);
+            //     }
+            // }
 
             //5. 정밀 주기 대기
             std::this_thread::sleep_until(next_tick);
