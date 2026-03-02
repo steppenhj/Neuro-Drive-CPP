@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neuro-Drive Controller</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+    <style>
+        /* 1. 전체 초기화 */
+        html, body { 
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background-color: #050505; color: #00ffcc;
+            font-family: 'Consolas', monospace; overflow: hidden;
+            touch-action: none; user-select: none; -webkit-user-select: none;
+        }
+
+        /* 2. 메인 레이아웃 (좌:우 분할) */
+        .main-container {
+            display: flex; width: 100%; height: 100%; flex-direction: row;
+        }
+
+        /* --- [왼쪽] 정보창 영역 --- */
+        .left-panel {
+            flex: 6; /* 비율 조정 */
+            position: relative; 
+            background: #0a0a0a;
+            border-right: 2px solid #00ffcc;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+        }
+
+        /* 시스템 상태 (좌측 상단 고정) */
+        .sys-status {
+            position: absolute; top: 20px; left: 20px;
+            font-size: 14px; border-left: 3px solid #00ffcc;
+            padding-left: 10px; color: #aaa;
+        }
+        #status_text { color: red; font-weight: bold; }
+
+        /* 중앙 로고 혹은 텍스트 */
+        .center-msg {
+            font-size: 2rem; color: #222; font-weight: bold;
+            text-transform: uppercase; letter-spacing: 5px;
+        }
+
+        /* ★ [핵심] 하단 대시보드 (HUD) */
+        .dashboard {
+            position: absolute; 
+            bottom: 30px; left: 30px; right: 30px;
+            background: rgba(20, 20, 20, 0.8);
+            padding: 20px; border-radius: 12px;
+            border: 1px solid #333;
+            display: flex; gap: 30px; align-items: center; justify-content: space-between;
+        }
+
+        .dash-group { display: flex; flex-direction: column; gap: 10px; }
+        .dash-row { display: flex; align-items: center; gap: 15px; font-size: 14px; color: #aaa; }
+        .val { color: #00ffcc; font-weight: bold; font-size: 16px; }
+
+        /* 버튼 스타일 */
+        button {
+            height: 50px; width: 100px;
+            background: #222; border: 1px solid #00ffcc; color: #00ffcc;
+            border-radius: 6px; font-weight: bold; cursor: pointer;
+            font-size: 16px; transition: 0.2s;
+        }
+        button.active { background: #00ffcc; color: #000; box-shadow: 0 0 15px #00ffcc; }
+        
+        input[type=range] { width: 150px; accent-color: #00ffcc; }
+
+        /* --- [오른쪽] 조이스틱 영역 --- */
+        .right-panel {
+            flex: 4;
+            background: #111;
+            position: relative;
+        }
+
+        #joystick_zone {
+            width: 100%; height: 100%;
+            position: absolute; top: 0; left: 0;
+            background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0) 70%);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="main-container">
+        
+        <div class="left-panel">
+            <div class="sys-status">SYSTEM STATUS: <span id="status_text">OFFLINE</span></div>
+            
+            <div class="center-msg">Neuro-Drive<br>Control System</div>
+
+            <div class="dashboard">
+                <div class="dash-group">
+                    <button id="btn_engine" onclick="toggleEngine()">START</button>
+                    <button id="btn_rth" onclick="toggleRTH()">REC</button> 
+                    <!-- rth버튼 -->
+                </div>
+                
+                <div class="dash-group" style="flex: 1;">
+                    <div class="dash-row">
+                        <span>ENCODER: <span id="val_enc" class="val">0</span></span>
+                        <span>CPU TEMP: <span id="val_temp" class="val">0.0</span>°C</span>
+                    </div>
+                    <div class="dash-row">
+                        <span>POWER LIMIT: <span id="val_limit" class="val">30</span>%</span>
+                        <input type="range" id="slider_limit" min="0" max="100" value="30" 
+                               oninput="document.getElementById('val_limit').innerText=this.value">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="right-panel">
+            <div id="joystick_zone"></div>
+        </div>
+
+    </div>
+
+    <script>
+        // 1. 소켓 연결
+        const socket = io({ reconnection: true, transports: ['websocket'] });
+        
+        socket.on('connect', () => { 
+            document.getElementById('status_text').innerText = "ONLINE";
+            document.getElementById('status_text').style.color = "#00ffcc";
+        });
+        socket.on('disconnect', () => { 
+            document.getElementById('status_text').innerText = "OFFLINE";
+            document.getElementById('status_text').style.color = "red";
+        });
+
+        // 2. 조이스틱 설정
+        var manager = nipplejs.create({
+            zone: document.getElementById('joystick_zone'),
+            mode: 'static',
+            position: {left: '50%', top: '50%'},
+            color: '#00ffcc', size: 150, threshold: 0.1
+        });
+
+        let cmd = { t: 0, s: 0 };
+        let active = false;
+
+        manager.on('move', (evt, data) => {
+            if(data.vector) {
+                cmd.t = data.vector.y;
+                cmd.s = data.vector.x;
+                active = true;
+            }
+        });
+
+        manager.on('end', () => {
+            cmd.t = 0; cmd.s = 0; active = false;
+            send(0, 0);
+        });
+
+        // 데이터 전송 (100ms 주기)
+        setInterval(() => { if(active) send(cmd.t, cmd.s); }, 100);
+
+        function send(t, s) {
+            const limit = document.getElementById('slider_limit').value / 100;
+            socket.volatile.emit('control_command', {
+                //volatile은 네트워크 지연 시에 최신 데이터를 보내기위함으로 추가
+                // 어찌됐든 control_command 라는 이름으로 보냄
+                throttle: parseFloat((t * limit).toFixed(2)),
+                steering: parseFloat(s.toFixed(2))
+            });
+        }
+
+        // 3. 버튼 및 데이터 핸들러
+        function toggleEngine() { socket.emit('toggle_engine'); }
+
+        // RTH기능
+        let rthState = 0; //0=대기, 1=기록중, 2=복귀중
+
+        function toggleRTH() {
+            if(rthState === 0){
+                rthState = 1;
+                socket.emit('rth_command', {mode: 1});
+            } else if(rthState === 1) {
+                rthState = 2;
+                socket.emit('rth_command', {mode: 2});
+            } else{
+                rthState = 0;
+                socket.emit('rth_command', {mode: 0});
+            }
+        }
+
+        socket.on('rth_update', (d) => {
+            const btn = document.getElementById('btn_rth');
+            if(d.mode === 1) { btn.innerText = "REC●"; btn.classList.add('active'); }
+            else if(d.mode === 2) { btn.innerText = "RTH↩"; btn.classList.add('active'); }
+            else { btn.innerText = "REC"; btn.classList.remove('active'); }
+        });
+        //RTH버튼 누르면 디자인 쪼매 바꿔주기. 
+
+        //def handle_engine(): 으로 이동하는 것임. 
+        socket.on('engine_update', (d) => {
+            const btn = document.getElementById('btn_engine');
+            if(d.running) { btn.innerText = "STOP"; btn.classList.add('active'); }
+            else { btn.innerText = "START"; btn.classList.remove('active'); }
+        });
+
+        socket.on('encoder_update', (d) => { document.getElementById('val_enc').innerText = -d.speed; });
+        socket.on('status_update', (d) => { document.getElementById('val_temp').innerText = d.cpu_temp.toFixed(1); });
+
+        // 더블클릭 확대 방지
+        document.addEventListener('dblclick', (e) => { e.preventDefault(); }, { passive: false });
+    </script>
+</body>
+</html>
