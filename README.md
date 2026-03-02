@@ -9,7 +9,7 @@
 Heterogeneous MPU/MCU distributed control system for an Ackermann-steering UGV.  
 The focus is not on "driving an RC car" — it is on **real-time control, communication pipeline design, and fail-safe mechanisms** across two physically separate processors.
 
-> **Portfolio (detailed write-up per phase):** [https://steppenhj.github.io/Neuro-Drive-Portfolio](https://steppenhj.github.io/Neuro-Drive-Portfolio)
+> **Portfolio (detailed write-up per phase):** [https://steppenhj.github.io/](https://steppenhj.github.io/)
 
 ---
 
@@ -140,11 +140,8 @@ python3 app.py
 ## Author
 
 **박해진 (Haejin Park)**  
-Computer Engineering, Kyungpook National University  
+Kyungpook National University  
 Targeting embedded SW roles in automotive / defense / semiconductor industries.
 
 ---
 
-## License
-
-This project is for portfolio and educational purposes.
