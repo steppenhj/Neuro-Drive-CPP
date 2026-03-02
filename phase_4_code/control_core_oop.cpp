@@ -39,6 +39,12 @@ struct SharedContext {
     std::mutex path_mutex; //path 보호용
     int last_encoder_diff = 0;  //마지막 엔코더 값 저장
 
+    // RTH 거리 기반 제어 상태
+    int rth_current_target = 0;   // 현재 스텝 목표 거리 (enc ticks)
+    int rth_current_angle = 1500; // 현재 스텝 각도
+    int rth_acc_enc = 0;          // 현재 스텝 누적 거리
+    int rth_direction = 1;        // 복귀 방향 (+1 or -1)
+
     //현재 시간 (us) 가져오기 유틸리티
     static int64_t now_us(){
         return std::chrono::duration_cast<std::chrono::microseconds>(
@@ -223,30 +229,52 @@ private:
                 if(strncmp(read_buf, "ENC:", 4) == 0){
                     int enc_val = atoi(read_buf + 4);
                     ctx.last_encoder_diff = enc_val;
-                    // path를 {enc_val, pwm_angle} 에서 {throttle_sign, pwm_angle}로 변경
+                    // path: {enc_val(실제 거리), pwm_angle} 으로 기록
                     if(ctx.rth_mode.load() == 1){
                         std::lock_guard<std::mutex> lock(ctx.path_mutex);
-                        int throttle_sign = (current_th > 0.05f) ? 1 : (current_th < -0.05f) ? -1 : 0;
-                        if(throttle_sign != 0) {
-                            //정지구간이 직진으로 되는 걸 제외
+                        if(abs(enc_val) > 2) {  // 최소 이동 필터 (노이즈 제거)
                             int pwm_angle_now = 1500 + (int)(current_st * 900.0f);
-                            ctx.path.push_back({throttle_sign, pwm_angle_now});
+                            ctx.path.push_back({enc_val, pwm_angle_now});  // 실제 거리 기록
                         }
                     }
-                    // RTH 복귀도 여기서 처리 (20Hz 기준)
+                    // RTH 복귀도 여기서 처리 (거리 기반)
                     if(ctx.rth_mode.load() == 2 && !timeout){
                         std::lock_guard<std::mutex> lock(ctx.path_mutex);
-                        if(!ctx.path.empty()){
-                            auto [enc_target, angle] = ctx.path.back();
-                            ctx.path.pop_back();
-                            cout << "[RTH] enc_target: " << enc_target << endl;  // 추가
-                            int reverse_speed = (enc_target > 0) ? -600 : 600;
-                            int len2 = snprintf(buffer, sizeof(buffer), "%d,%d\n", reverse_speed, angle);
+
+                        // 현재 스텝 없으면 다음 스텝 로드
+                        if(ctx.rth_current_target == 0){
+                            if(!ctx.path.empty()){
+                                auto [target, angle] = ctx.path.back();
+                                ctx.path.pop_back();
+                                ctx.rth_current_target = abs(target);
+                                ctx.rth_current_angle = angle;
+                                ctx.rth_acc_enc = 0;
+                                ctx.rth_direction = (target > 0) ? 1 : -1;
+                            } else {
+                                ctx.rth_mode.store(0, std::memory_order_relaxed);
+                                ctx.rth_acc_enc = 0;
+                                write(serial_fd, "0,1500\n", 7);
+                            }
+                        }
+
+                        if(ctx.rth_current_target > 0){
+                            ctx.rth_acc_enc += abs(enc_val);
+                            // 남은 거리에 비례해서 감속
+                            // 최솟값 500: STM32 PID(kp=0.5) 통과 후 250 PWM → 모터 구동 보장
+                            int remaining = ctx.rth_current_target - ctx.rth_acc_enc;
+                            int speed = min(600, max(500, remaining * 3));
+
+                            int reverse_speed = ctx.rth_direction * speed;
+                            int len2 = snprintf(buffer, sizeof(buffer), "%d,%d\n", reverse_speed, ctx.rth_current_angle);
                             write(serial_fd, buffer, len2);
-                            cout << "[RTH] ACTIVE, path size: " << ctx.path.size() << endl;
-                        } else {
-                            ctx.rth_mode.store(0, std::memory_order_relaxed);
-                            write(serial_fd, "0,1500\n", 7);
+                            cout << "[RTH] target:" << ctx.rth_current_target
+                                 << " acc:" << ctx.rth_acc_enc
+                                 << " path_left:" << ctx.path.size() << endl;
+
+                            // 목표 거리 도달 → 스텝 완료, 다음 패킷에서 다음 스텝 로드
+                            if(ctx.rth_acc_enc >= ctx.rth_current_target){
+                                ctx.rth_current_target = 0;
+                            }
                         }
                     }
 

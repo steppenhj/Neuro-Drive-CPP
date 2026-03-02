@@ -779,10 +779,13 @@ void StartTask02(void *argument)
       // ---------------------------------------------------------
 
       //*************엔코더 값 보내기
-      // Task_Motor 루프 안, 엔코더 계산 바로 아래에 추가
+      // 10ms마다 누적 → 50ms(5회)마다 Task_Comm에 전달
+      static int16_t enc_acc = 0;
       static uint8_t enc_tick = 0;
-      if(++enc_tick >= 5) { // 100Hz 루프에서 5번마다 = 20Hz 전송
-          current_speed_rpm = diff;  //전역변수에 저장. 프린트 안하기
+      enc_acc += diff;  // 매 10ms마다 누적
+      if(++enc_tick >= 5) {
+          current_speed_rpm = enc_acc;  // 50ms 누적값 저장
+          enc_acc = 0;
           enc_tick = 0;
       }
 
