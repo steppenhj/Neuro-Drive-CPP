@@ -22,7 +22,7 @@
 
         /* --- [왼쪽] 정보창 영역 --- */
         .left-panel {
-            flex: 6; /* 비율 조정 */
+            flex: 6;
             position: relative; 
             background: #0a0a0a;
             border-right: 2px solid #00ffcc;
@@ -81,6 +81,64 @@
             position: absolute; top: 0; left: 0;
             background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0) 70%);
         }
+
+        /* ★ OTA 모달 오버레이 */
+        .ota-overlay {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 1000;
+            justify-content: center; align-items: center;
+        }
+        .ota-overlay.show { display: flex; }
+
+        .ota-modal {
+            background: #111; border: 1px solid #00ffcc; border-radius: 12px;
+            padding: 40px; width: 500px; max-width: 90%;
+            text-align: center;
+        }
+        .ota-modal h2 {
+            color: #00ffcc; margin: 0 0 20px 0; font-size: 1.2rem;
+            letter-spacing: 3px; text-transform: uppercase;
+        }
+
+        /* 파일 선택 영역 */
+        .ota-dropzone {
+            border: 2px dashed #333; border-radius: 8px;
+            padding: 30px; margin: 20px 0; cursor: pointer;
+            transition: 0.3s; color: #666;
+        }
+        .ota-dropzone:hover { border-color: #00ffcc; color: #00ffcc; }
+        .ota-dropzone.has-file { border-color: #00ffcc; color: #00ffcc; }
+
+        #ota_file_input { display: none; }
+
+        /* 진행률 바 */
+        .ota-progress-wrap {
+            display: none; margin: 20px 0;
+        }
+        .ota-progress-wrap.show { display: block; }
+
+        .ota-progress-bar {
+            width: 100%; height: 20px; background: #222;
+            border-radius: 10px; overflow: hidden; border: 1px solid #333;
+        }
+        .ota-progress-fill {
+            height: 100%; width: 0%; background: #00ffcc;
+            border-radius: 10px; transition: width 0.3s ease;
+        }
+        .ota-progress-text {
+            margin-top: 10px; font-size: 13px; color: #aaa;
+        }
+
+        /* OTA 버튼들 */
+        .ota-buttons { display: flex; gap: 15px; justify-content: center; margin-top: 20px; }
+        .ota-btn {
+            height: 45px; width: 130px; font-size: 14px;
+        }
+        .ota-btn.upload { background: #00ffcc; color: #000; border-color: #00ffcc; }
+        .ota-btn.upload:disabled { background: #333; color: #666; border-color: #333; cursor: not-allowed; }
+        .ota-btn.cancel { background: #222; color: #ff4444; border-color: #ff4444; }
     </style>
 </head>
 <body>
@@ -95,8 +153,8 @@
             <div class="dashboard">
                 <div class="dash-group">
                     <button id="btn_engine" onclick="toggleEngine()">START</button>
-                    <button id="btn_rth" onclick="toggleRTH()">REC</button> 
-                    <!-- rth버튼 -->
+                    <button id="btn_rth" onclick="toggleRTH()">REC</button>
+                    <button id="btn_ota" onclick="openOTA()">OTA</button>
                 </div>
                 
                 <div class="dash-group" style="flex: 1;">
@@ -117,6 +175,33 @@
             <div id="joystick_zone"></div>
         </div>
 
+    </div>
+
+    <!-- ★ OTA 펌웨어 업데이트 모달 -->
+    <div id="ota_overlay" class="ota-overlay">
+        <div class="ota-modal">
+            <h2>⚡ Firmware Update (OTA)</h2>
+            
+            <!-- 파일 선택 -->
+            <div id="ota_dropzone" class="ota-dropzone" onclick="document.getElementById('ota_file_input').click()">
+                <div id="ota_file_label">📁 .bin 파일을 선택하세요</div>
+            </div>
+            <input type="file" id="ota_file_input" accept=".bin" onchange="onFileSelected(this)">
+
+            <!-- 진행률 -->
+            <div id="ota_progress_wrap" class="ota-progress-wrap">
+                <div class="ota-progress-bar">
+                    <div id="ota_progress_fill" class="ota-progress-fill"></div>
+                </div>
+                <div id="ota_progress_text" class="ota-progress-text">대기 중...</div>
+            </div>
+
+            <!-- 버튼 -->
+            <div class="ota-buttons">
+                <button id="btn_ota_upload" class="ota-btn upload" onclick="startOTA()" disabled>UPLOAD</button>
+                <button id="btn_ota_cancel" class="ota-btn cancel" onclick="closeOTA()">CLOSE</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -162,8 +247,6 @@
         function send(t, s) {
             const limit = document.getElementById('slider_limit').value / 100;
             socket.volatile.emit('control_command', {
-                //volatile은 네트워크 지연 시에 최신 데이터를 보내기위함으로 추가
-                // 어찌됐든 control_command 라는 이름으로 보냄
                 throttle: parseFloat((t * limit).toFixed(2)),
                 steering: parseFloat(s.toFixed(2))
             });
@@ -173,7 +256,7 @@
         function toggleEngine() { socket.emit('toggle_engine'); }
 
         // RTH기능
-        let rthState = 0; //0=대기, 1=기록중, 2=복귀중
+        let rthState = 0;
 
         function toggleRTH() {
             if(rthState === 0){
@@ -194,9 +277,7 @@
             else if(d.mode === 2) { btn.innerText = "RTH↩"; btn.classList.add('active'); }
             else { btn.innerText = "REC"; btn.classList.remove('active'); }
         });
-        //RTH버튼 누르면 디자인 쪼매 바꿔주기. 
 
-        //def handle_engine(): 으로 이동하는 것임. 
         socket.on('engine_update', (d) => {
             const btn = document.getElementById('btn_engine');
             if(d.running) { btn.innerText = "STOP"; btn.classList.add('active'); }
@@ -205,6 +286,113 @@
 
         socket.on('encoder_update', (d) => { document.getElementById('val_enc').innerText = -d.speed; });
         socket.on('status_update', (d) => { document.getElementById('val_temp').innerText = d.cpu_temp.toFixed(1); });
+
+        // ==========================================
+        // ★ OTA 펌웨어 업데이트 기능
+        // ==========================================
+        let selectedFile = null;
+        let otaRunning = false;
+
+        function openOTA() {
+            // OTA 모달 열기
+            document.getElementById('ota_overlay').classList.add('show');
+            resetOTAUI();
+        }
+
+        function closeOTA() {
+            // OTA 진행 중이면 닫기 차단
+            if (otaRunning) return;
+            document.getElementById('ota_overlay').classList.remove('show');
+            resetOTAUI();
+        }
+
+        function resetOTAUI() {
+            // UI 초기화
+            selectedFile = null;
+            document.getElementById('ota_file_input').value = '';
+            document.getElementById('ota_file_label').innerText = '📁 .bin 파일을 선택하세요';
+            document.getElementById('ota_dropzone').classList.remove('has-file');
+            document.getElementById('ota_progress_wrap').classList.remove('show');
+            document.getElementById('ota_progress_fill').style.width = '0%';
+            document.getElementById('ota_progress_text').innerText = '대기 중...';
+            document.getElementById('btn_ota_upload').disabled = true;
+            document.getElementById('btn_ota_cancel').innerText = 'CLOSE';
+            otaRunning = false;
+        }
+
+        function onFileSelected(input) {
+            // 파일 선택 시 호출
+            if (input.files.length > 0) {
+                selectedFile = input.files[0];
+                
+                // .bin 확인
+                if (!selectedFile.name.endsWith('.bin')) {
+                    alert('.bin 파일만 업로드 가능합니다.');
+                    selectedFile = null;
+                    return;
+                }
+
+                // 크기 확인 (최대 496KB)
+                if (selectedFile.size > 496 * 1024) {
+                    alert('파일 크기 초과 (최대 496KB)');
+                    selectedFile = null;
+                    return;
+                }
+
+                document.getElementById('ota_file_label').innerText = 
+                    `✅ ${selectedFile.name} (${(selectedFile.size / 1024).toFixed(1)} KB)`;
+                document.getElementById('ota_dropzone').classList.add('has-file');
+                document.getElementById('btn_ota_upload').disabled = false;
+            }
+        }
+
+        function startOTA() {
+            if (!selectedFile || otaRunning) return;
+
+            otaRunning = true;
+            document.getElementById('btn_ota_upload').disabled = true;
+            document.getElementById('btn_ota_cancel').innerText = '진행 중...';
+            document.getElementById('ota_progress_wrap').classList.add('show');
+
+            // 파일을 ArrayBuffer로 읽어서 WebSocket으로 전송
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const arrayBuffer = e.target.result;
+                // ArrayBuffer -> bytes로 서버에 전송
+                socket.emit('firmware_upload', {
+                    firmware: arrayBuffer,
+                    filename: selectedFile.name
+                });
+            };
+            reader.readAsArrayBuffer(selectedFile);
+        }
+
+        // 서버에서 OTA 진행률 수신
+        socket.on('ota_status', (d) => {
+            const fill = document.getElementById('ota_progress_fill');
+            const text = document.getElementById('ota_progress_text');
+            const cancelBtn = document.getElementById('btn_ota_cancel');
+
+            if (d.percent >= 0) {
+                fill.style.width = d.percent + '%';
+                text.innerText = d.message;
+
+                // 완료 시
+                if (d.percent >= 100) {
+                    fill.style.background = '#00ff88';
+                    cancelBtn.innerText = 'CLOSE';
+                    otaRunning = false;
+                }
+            } else {
+                // 에러
+                fill.style.width = '100%';
+                fill.style.background = '#ff4444';
+                text.innerText = d.message;
+                text.style.color = '#ff4444';
+                cancelBtn.innerText = 'CLOSE';
+                otaRunning = false;
+            }
+        });
 
         // 더블클릭 확대 방지
         document.addEventListener('dblclick', (e) => { e.preventDefault(); }, { passive: false });

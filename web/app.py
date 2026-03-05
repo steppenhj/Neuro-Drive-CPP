@@ -4,6 +4,7 @@ import socket #네트워크 통신
 import struct  # C++ 구조체와 통신하기 위해 필요
 import eventlet #비동기 처리 라이브러리
 import os
+import subprocess #phase5의 OTA 기능 위해서 추가함
 from eventlet.semaphore import Semaphore
 
 import serial
@@ -23,8 +24,9 @@ UDP_IP = "127.0.0.1" #라즈베리파이 내부라는 뜻 (localhost)
 UDP_PORT = 5555
 
 #웹 서버(Flask)와 웹소켓(SocketIO) 객체 생성
+#OTA 객체 추가
 app = Flask(__name__, static_folder='static', template_folder='templates')
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet', max_http_buffer_size=1024*1024)
 
 # UDP 소켓 생성 (Non-blocking)
 #AF_INET: 인터넷 주소 체계 (IPv4) 쓰기
@@ -39,6 +41,9 @@ engine_running = False
 rth_active = False
 
 rth_mode_current = 0  # 전역 변수 추가
+
+# OTA 상태 변수
+ota_in_progress = False
 
 #2/26추가. 엔코더 받기
 feedback_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -181,6 +186,8 @@ def handle_control_command(data):
         # 알고리즘이다. 결국 성공. 조향 시에 속도 빨라짐.
         # 그러나 추후에 PID 제어 성공하면
         # 이건 없어질 수도 있다.
+
+        #PID는 어느 정도 했는데 이거는 일단 놔두는 게 좋다고 판단함
         # ========================================================
         
         # (1) 조향이 절반 이상(0.5) 꺾였고, 스로틀 입력이 조금이라도 있다면?
@@ -213,6 +220,165 @@ def handle_control_command(data):
 
     except Exception as e:
         print(f"Control Error: {e}")
+
+#=================================================================
+# 5. OTA 펌웨어 업데이트 핸들러
+# ===================================================================
+@socketio.on('firmware_upload')
+def handle_firmware_upload(data):
+    """
+    브라우저에서 .bin 파일을 받아 OTA 업데이트 실행.
+
+    흐름:
+    1. 엔진 정지 + 조이스틱 차단
+    2. C++ 프로세스 종료 (UART 포트 해제)
+    3. ota_flasher.py로 펌웨어 전송
+    4. 완료 후 C++ 재시작
+
+    OTA 성공하긴 했는데 잠시 수정이 필요함. 
+    현재 즉각적인 업데이트가 안되고 있음.
+    """
+    global ota_in_progress, engine_running
+
+    #이미 OTA 진행 중이면 무시
+    if ota_in_progress:
+        emit('ota_status', {'percent': -1, 'message': 'OTA가 이미 진행 중임'})
+        return
+
+    ota_in_progress = True
+    engine_running = False
+    emit('engine_update', {'running': False})
+
+    #백그라운드 태스크로 실행 (이벤트 루프 안 막힘)
+    socketio.start_background_task(run_ota, data)
+
+    # try:
+    #     # 1. 바이너리 데이터 추출
+    #     bin_data = data.get('firmware')
+    #     filename = data.get('filename', 'firmware.bin')
+
+    #     if not bin_data:
+    #         emit('ota_status', {'percent': -1, 'message': '파일 데이터 없음'})
+    #         return 
+
+    #     # 2. 임시 파일로 저장
+    #     save_path = os.path.join(os.path.dirname(__file__), f'_temp_{filename}')
+    #     with open(save_path, 'wb') as f:
+    #         f.write(bin_data)
+
+
+    #     file_size = os.path.getsize(save_path)
+    #     emit('ota_status', {'percent': 0, 'message': f'파일 수신 완료: {file_size} bytes'})
+    #     sys_log(f"OTA 시작: {filename} ({file_size} bytes)", "WARN")
+
+    #     # 3. C++ 프로세스 종료 (UART 포트 해제를 위함)
+    #     emit('ota_status', {'percent': 1, 'message': 'C++ 제어 프로세스 종료중'})
+    #     subprocess.run(['pkill', '-f', 'control_core'], capture_output=True)
+    #     subprocess.run(['pkill', '-f', 'drive_server'], capture_output=True)
+    #     time.sleep(1) #프로세스 종료 + 시리얼 포트 해제 대기
+
+    #     #4. OTA Flasher 실행 -> 이게 좀 좋은 것 같다
+    #     from ota_flasher import OTAFlasher, OTAError
+
+    #     def progress_callback(percent, message):
+    #         """진행률을 WebSocekt으로 브라우저에 전달"""
+    #         socketio.emit('ota_status', {'percent': percent, 'message': message})
+
+    #     flasher = OTAFlasher("/dev/ttyACM0")
+    #     success = flasher.flash(save_path, progress_callback=progress_callback)
+
+    #     #5. 임시 파일 삭제
+    #     if os.path.exists(save_path):
+    #         os.remove(save_path)
+
+    #     if success:
+    #         # 6. C++ 프로세스 재시작
+    #         emit('ota_status', {'percent': 100, 'message': '펌웨어 업데이트 완료, 시스템 재시작 시작'})
+    #         sys_log("OTA성공, C++ 재시작 시작", "SUCCESS")
+
+    #         time.sleep(3) #STM32 재부팅 대기(부트로더 3초 +App점프)
+
+    #         #C++ 백그라운드로 재시작
+    #         cpp_path = os.path.join(os.path.dirname(__file__), '..', 'drive_server')
+    #         if os.path.exists(cpp_path):
+    #             subprocess.Popen([cpp_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    #             sys_log("C++ 제어 프로세스 재시작 완료", 'SUCCESS')
+    #         else:
+    #             sys_log(f"C++ 실행 파일 없음: {cpp_path}", "WARN")
+
+    #         socketio.emit('ota_status', {'percent': 100, 'message': '시스템 준비 완료. START 버튼 누르면 됨'})
+    #     else:
+    #         sys_log("OTA 실패", "ERROR")
+    #         socketio.emit('ota_status', {'percent': -1, 'message': 'OTA 실패임. 다시 시도해보자'})
+
+    # except Exception as e:
+    #     sys_log(f"OTA오류: {e}", "ERROR")
+    #     socketio.emit('ota_status', {'percent': -1, 'message': f'OTA 오류: {e}'})
+
+    # finally:
+    #     ota_in_progress = False
+
+#기존 하나의 큰 함수를 두 개로 쪼개기. 
+#run_dta가 백그라운드에서 처리
+def run_ota(data):
+    """OTA를 백그라운드에서 실행"""
+    global ota_in_progress
+
+    try:
+        bin_data = data.get('firmware')
+        filename = data.get('filename', 'firmware.bin')
+
+        if not bin_data:
+            socketio.emit('ota_status', {'percent': -1, 'message': '파일 데이터 없음'})
+            return
+
+        save_path = os.path.join(os.path.dirname(__file__), f'_temp_{filename}')
+        with open(save_path, 'wb') as f:
+            f.write(bin_data)
+
+        file_size = os.path.getsize(save_path)
+        socketio.emit('ota_status', {'percent': 0, 'message': f'파일 수신 완료: {file_size} bytes'})
+        sys_log(f"OTA 시작: {filename} ({file_size} bytes)", "WARN")
+
+        socketio.emit('ota_status', {'percent': 1, 'message': 'C++ 제어 프로세스 종료중'})
+        subprocess.run(['pkill', '-f', 'control_core'], capture_output=True)
+        subprocess.run(['pkill', '-f', 'drive_server'], capture_output=True)
+        time.sleep(1)
+
+        from ota_flasher import OTAFlasher, OTAError
+
+        def progress_callback(percent, message):
+            socketio.emit('ota_status', {'percent': percent, 'message': message})
+
+        flasher = OTAFlasher("/dev/ttyACM0")
+        success = flasher.flash(save_path, progress_callback=progress_callback)
+
+        if os.path.exists(save_path):
+            os.remove(save_path)
+
+        if success:
+            socketio.emit('ota_status', {'percent': 100, 'message': '펌웨어 업데이트 완료, 시스템 재시작 시작'})
+            sys_log("OTA성공, C++ 재시작 시작", "SUCCESS")
+            time.sleep(3)
+
+            cpp_path = os.path.join(os.path.dirname(__file__), '..', 'drive_server')
+            if os.path.exists(cpp_path):
+                subprocess.Popen([cpp_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                sys_log("C++ 제어 프로세스 재시작 완료", "SUCCESS")
+            else:
+                sys_log(f"C++ 실행 파일 없음: {cpp_path}", "WARN")
+
+            socketio.emit('ota_status', {'percent': 100, 'message': '시스템 준비 완료. START 버튼 누르면 됨'})
+        else:
+            sys_log("OTA 실패", "ERROR")
+            socketio.emit('ota_status', {'percent': -1, 'message': 'OTA 실패임. 다시 시도해보자'})
+
+    except Exception as e:
+        sys_log(f"OTA오류: {e}", "ERROR")
+        socketio.emit('ota_status', {'percent': -1, 'message': f'OTA 오류: {e}'})
+
+    finally:
+        ota_in_progress = False        
 
 if __name__ == '__main__':
     print(f"Starting Neuro-Driver Python Server -> Sending to UDP {UDP_PORT}...")
