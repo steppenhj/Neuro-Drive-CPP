@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neuro-Drive Controller</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+    <style>
+        /* 1. 전체 초기화 */
+        html, body { 
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background-color: #050505; color: #00ffcc;
+            font-family: 'Consolas', monospace; overflow: hidden;
+            touch-action: none; user-select: none; -webkit-user-select: none;
+        }
+
+        /* 2. 메인 레이아웃 (좌:우 분할) */
+        .main-container {
+            display: flex; width: 100%; height: 100%; flex-direction: row;
+        }
+
+        /* --- [왼쪽] 정보창 영역 --- */
+        .left-panel {
+            flex: 6;
+            position: relative; 
+            background: #0a0a0a;
+            border-right: 2px solid #00ffcc;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+        }
+
+        /* 시스템 상태 (좌측 상단 고정) */
+        .sys-status {
+            position: absolute; top: 20px; left: 20px;
+            font-size: 14px; border-left: 3px solid #00ffcc;
+            padding-left: 10px; color: #aaa;
+        }
+        #status_text { color: red; font-weight: bold; }
+
+        /* 중앙 로고 혹은 텍스트 */
+        .center-msg {
+            font-size: 2rem; color: #222; font-weight: bold;
+            text-transform: uppercase; letter-spacing: 5px;
+        }
+
+        /* ★ [핵심] 하단 대시보드 (HUD) */
+        .dashboard {
+            position: absolute; 
+            bottom: 30px; left: 30px; right: 30px;
+            background: rgba(20, 20, 20, 0.8);
+            padding: 20px; border-radius: 12px;
+            border: 1px solid #333;
+            display: flex; gap: 30px; align-items: center; justify-content: space-between;
+        }
+
+        .dash-group { display: flex; flex-direction: column; gap: 10px; }
+        .dash-row { display: flex; align-items: center; gap: 15px; font-size: 14px; color: #aaa; }
+        .val { color: #00ffcc; font-weight: bold; font-size: 16px; }
+
+        /* 버튼 스타일 */
+        button {
+            height: 50px; width: 100px;
+            background: #222; border: 1px solid #00ffcc; color: #00ffcc;
+            border-radius: 6px; font-weight: bold; cursor: pointer;
+            font-size: 16px; transition: 0.2s;
+        }
+        button.active { background: #00ffcc; color: #000; box-shadow: 0 0 15px #00ffcc; }
+        
+        input[type=range] { width: 150px; accent-color: #00ffcc; }
+
+        /* --- [오른쪽] 조이스틱 영역 --- */
+        .right-panel {
+            flex: 4;
+            background: #111;
+            position: relative;
+        }
+
+        #joystick_zone {
+            width: 100%; height: 100%;
+            position: absolute; top: 0; left: 0;
+            background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0) 70%);
+        }
+
+        /* ★ OTA 모달 오버레이 */
+        .ota-overlay {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 1000;
+            justify-content: center; align-items: center;
+        }
+        .ota-overlay.show { display: flex; }
+
+        .ota-modal {
+            background: #111; border: 1px solid #00ffcc; border-radius: 12px;
+            padding: 40px; width: 500px; max-width: 90%;
+            text-align: center;
+        }
+        .ota-modal h2 {
+            color: #00ffcc; margin: 0 0 20px 0; font-size: 1.2rem;
+            letter-spacing: 3px; text-transform: uppercase;
+        }
+
+        /* 파일 선택 영역 */
+        .ota-dropzone {
+            border: 2px dashed #333; border-radius: 8px;
+            padding: 30px; margin: 20px 0; cursor: pointer;
+            transition: 0.3s; color: #666;
+        }
+        .ota-dropzone:hover { border-color: #00ffcc; color: #00ffcc; }
+        .ota-dropzone.has-file { border-color: #00ffcc; color: #00ffcc; }
+
+        #ota_file_input { display: none; }
+
+        /* 진행률 바 */
+        .ota-progress-wrap {
+            display: none; margin: 20px 0;
+        }
+        .ota-progress-wrap.show { display: block; }
+
+        .ota-progress-bar {
+            width: 100%; height: 20px; background: #222;
+            border-radius: 10px; overflow: hidden; border: 1px solid #333;
+        }
+        .ota-progress-fill {
+            height: 100%; width: 0%; background: #00ffcc;
+            border-radius: 10px; transition: width 0.3s ease;
+        }
+        .ota-progress-text {
+            margin-top: 10px; font-size: 13px; color: #aaa;
+        }
+
+        /* OTA 버튼들 */
+        .ota-buttons { display: flex; gap: 15px; justify-content: center; margin-top: 20px; }
+        .ota-btn {
+            height: 45px; width: 130px; font-size: 14px;
+        }
+        .ota-btn.upload { background: #00ffcc; color: #000; border-color: #00ffcc; }
+        .ota-btn.upload:disabled { background: #333; color: #666; border-color: #333; cursor: not-allowed; }
+        .ota-btn.cancel { background: #222; color: #ff4444; border-color: #ff4444; }
+    </style>
+</head>
+<body>
+
+    <div class="main-container">
+        
+        <div class="left-panel">
+            <div class="sys-status">SYSTEM STATUS: <span id="status_text">OFFLINE</span></div>
+            
+            <div class="center-msg">Neuro-Drive<br>Control System</div>
+
+            <div class="dashboard">
+                <div class="dash-group">
+                    <button id="btn_engine" onclick="toggleEngine()">START</button>
+                    <button id="btn_rth" onclick="toggleRTH()">REC</button>
+                    <button id="btn_ota" onclick="openOTA()">OTA</button>
+                </div>
+                
+                <div class="dash-group" style="flex: 1;">
+                    <div class="dash-row">
+                        <span>ENCODER: <span id="val_enc" class="val">0</span></span>
+                        <span>CPU TEMP: <span id="val_temp" class="val">0.0</span>°C</span>
+                    </div>
+                    <div class="dash-row">
+                        <span>POWER LIMIT: <span id="val_limit" class="val">30</span>%</span>
+                        <input type="range" id="slider_limit" min="0" max="100" value="30" 
+                               oninput="document.getElementById('val_limit').innerText=this.value">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="right-panel">
+            <div id="joystick_zone"></div>
+        </div>
+
+    </div>
+
+    <!-- ★ OTA 펌웨어 업데이트 모달 -->
+    <div id="ota_overlay" class="ota-overlay">
+        <div class="ota-modal">
+            <h2>⚡ Firmware Update (OTA)</h2>
+            
+            <!-- 파일 선택 -->
+            <div id="ota_dropzone" class="ota-dropzone" onclick="document.getElementById('ota_file_input').click()">
+                <div id="ota_file_label">📁 .bin 파일을 선택하세요</div>
+            </div>
+            <input type="file" id="ota_file_input" accept=".bin" onchange="onFileSelected(this)">
+
+            <!-- 진행률 -->
+            <div id="ota_progress_wrap" class="ota-progress-wrap">
+                <div class="ota-progress-bar">
+                    <div id="ota_progress_fill" class="ota-progress-fill"></div>
+                </div>
+                <div id="ota_progress_text" class="ota-progress-text">대기 중...</div>
+            </div>
+
+            <!-- 버튼 -->
+            <div class="ota-buttons">
+                <button id="btn_ota_upload" class="ota-btn upload" onclick="startOTA()" disabled>UPLOAD</button>
+                <button id="btn_ota_cancel" class="ota-btn cancel" onclick="closeOTA()">CLOSE</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 1. 소켓 연결
+        const socket = io({ reconnection: true, transports: ['websocket'] });
+        
+        socket.on('connect', () => { 
+            document.getElementById('status_text').innerText = "ONLINE";
+            document.getElementById('status_text').style.color = "#00ffcc";
+        });
+        socket.on('disconnect', () => { 
+            document.getElementById('status_text').innerText = "OFFLINE";
+            document.getElementById('status_text').style.color = "red";
+        });
+
+        // 2. 조이스틱 설정
+        var manager = nipplejs.create({
+            zone: document.getElementById('joystick_zone'),
+            mode: 'static',
+            position: {left: '50%', top: '50%'},
+            color: '#00ffcc', size: 150, threshold: 0.1
+        });
+
+        let cmd = { t: 0, s: 0 };
+        let active = false;
+
+        manager.on('move', (evt, data) => {
+            if(data.vector) {
+                cmd.t = data.vector.y;
+                cmd.s = data.vector.x;
+                active = true;
+            }
+        });
+
+        manager.on('end', () => {
+            cmd.t = 0; cmd.s = 0; active = false;
+            send(0, 0);
+        });
+
+        // 데이터 전송 (100ms 주기)
+        setInterval(() => { if(active) send(cmd.t, cmd.s); }, 100);
+
+        function send(t, s) {
+            const limit = document.getElementById('slider_limit').value / 100;
+            socket.volatile.emit('control_command', {
+                throttle: parseFloat((t * limit).toFixed(2)),
+                steering: parseFloat(s.toFixed(2))
+            });
+        }
+
+        // 3. 버튼 및 데이터 핸들러
+        function toggleEngine() { socket.emit('toggle_engine'); }
+
+        // RTH기능
+        let rthState = 0;
+
+        function toggleRTH() {
+            if(rthState === 0){
+                rthState = 1;
+                socket.emit('rth_command', {mode: 1});
+            } else if(rthState === 1) {
+                rthState = 2;
+                socket.emit('rth_command', {mode: 2});
+            } else{
+                rthState = 0;
+                socket.emit('rth_command', {mode: 0});
+            }
+        }
+
+        socket.on('rth_update', (d) => {
+            const btn = document.getElementById('btn_rth');
+            if(d.mode === 1) { btn.innerText = "REC●"; btn.classList.add('active'); }
+            else if(d.mode === 2) { btn.innerText = "RTH↩"; btn.classList.add('active'); }
+            else { btn.innerText = "REC"; btn.classList.remove('active'); }
+        });
+
+        socket.on('engine_update', (d) => {
+            const btn = document.getElementById('btn_engine');
+            if(d.running) { btn.innerText = "STOP"; btn.classList.add('active'); }
+            else { btn.innerText = "START"; btn.classList.remove('active'); }
+        });
+
+        socket.on('encoder_update', (d) => { document.getElementById('val_enc').innerText = -d.speed; });
+        socket.on('status_update', (d) => { document.getElementById('val_temp').innerText = d.cpu_temp.toFixed(1); });
+
+        // ==========================================
+        // ★ OTA 펌웨어 업데이트 기능
+        // ==========================================
+        let selectedFile = null;
+        let otaRunning = false;
+
+        function openOTA() {
+            // OTA 모달 열기
+            document.getElementById('ota_overlay').classList.add('show');
+            resetOTAUI();
+        }
+
+        function closeOTA() {
+            // OTA 진행 중이면 닫기 차단
+            if (otaRunning) return;
+            document.getElementById('ota_overlay').classList.remove('show');
+            resetOTAUI();
+        }
+
+        function resetOTAUI() {
+            // UI 초기화
+            selectedFile = null;
+            document.getElementById('ota_file_input').value = '';
+            document.getElementById('ota_file_label').innerText = '📁 .bin 파일을 선택하세요';
+            document.getElementById('ota_dropzone').classList.remove('has-file');
+            document.getElementById('ota_progress_wrap').classList.remove('show');
+            document.getElementById('ota_progress_fill').style.width = '0%';
+            document.getElementById('ota_progress_text').innerText = '대기 중...';
+            document.getElementById('btn_ota_upload').disabled = true;
+            document.getElementById('btn_ota_cancel').innerText = 'CLOSE';
+            otaRunning = false;
+        }
+
+        function onFileSelected(input) {
+            // 파일 선택 시 호출
+            if (input.files.length > 0) {
+                selectedFile = input.files[0];
+                
+                // .bin 확인
+                if (!selectedFile.name.endsWith('.bin')) {
+                    alert('.bin 파일만 업로드 가능합니다.');
+                    selectedFile = null;
+                    return;
+                }
+
+                // 크기 확인 (최대 496KB)
+                if (selectedFile.size > 496 * 1024) {
+                    alert('파일 크기 초과 (최대 496KB)');
+                    selectedFile = null;
+                    return;
+                }
+
+                document.getElementById('ota_file_label').innerText = 
+                    `✅ ${selectedFile.name} (${(selectedFile.size / 1024).toFixed(1)} KB)`;
+                document.getElementById('ota_dropzone').classList.add('has-file');
+                document.getElementById('btn_ota_upload').disabled = false;
+            }
+        }
+
+        function startOTA() {
+            if (!selectedFile || otaRunning) return;
+
+            otaRunning = true;
+            document.getElementById('btn_ota_upload').disabled = true;
+            document.getElementById('btn_ota_cancel').innerText = '진행 중...';
+            document.getElementById('ota_progress_wrap').classList.add('show');
+
+            // 파일을 ArrayBuffer로 읽어서 WebSocket으로 전송
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const arrayBuffer = e.target.result;
+                // ArrayBuffer -> bytes로 서버에 전송
+                socket.emit('firmware_upload', {
+                    firmware: arrayBuffer,
+                    filename: selectedFile.name
+                });
+            };
+            reader.readAsArrayBuffer(selectedFile);
+        }
+
+        // 서버에서 OTA 진행률 수신
+        socket.on('ota_status', (d) => {
+            const fill = document.getElementById('ota_progress_fill');
+            const text = document.getElementById('ota_progress_text');
+            const cancelBtn = document.getElementById('btn_ota_cancel');
+
+            if (d.percent >= 0) {
+                fill.style.width = d.percent + '%';
+                text.innerText = d.message;
+
+                // 완료 시
+                if (d.percent >= 100) {
+                    fill.style.background = '#00ff88';
+                    cancelBtn.innerText = 'CLOSE';
+                    otaRunning = false;
+                }
+            } else {
+                // 에러
+                fill.style.width = '100%';
+                fill.style.background = '#ff4444';
+                text.innerText = d.message;
+                text.style.color = '#ff4444';
+                cancelBtn.innerText = 'CLOSE';
+                otaRunning = false;
+            }
+        });
+
+        // 더블클릭 확대 방지
+        document.addEventListener('dblclick', (e) => { e.preventDefault(); }, { passive: false });
+    </script>
+</body>
+</html>
