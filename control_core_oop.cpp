@@ -53,6 +53,13 @@
     //-------RTH 상태 (UdpReceiver가 mode를 씀, VehicleController가 읽음)----
     std::atomic<int> rth_mode{0};  //0=일반, 1=기록중, 2=복귀중
 
+    //****************************
+    // Phase 6 들어가기 전,
+    // Ping Pong으로 
+    // 시간을 측정하자
+    //  */
+    std::atomic<bool> ping_requested{false};
+
     // ------RTH 경로 데이터 (RTHController가 관리) ------
     // path: {엔코더 tick 수, 서보 각도(PWM us)} 쌍의 리스트
     std::vector<std::pair<int, int>> path;
@@ -106,6 +113,14 @@ private:
                 }
                 // WatchDog 시간 갱신 (atomic이라 mutex 필요 없다)
                 ctx.last_rx_us.store(SharedContext::now_us(), std::memory_order_relaxed);
+
+                //*************
+                // Phase 6전 핑퐁
+                // mode=99일 때 ping 플래그 설정
+                if(pkt.mode == 99){
+                    ctx.ping_requested.store(true, std::memory_order_relaxed);
+                    continue; //rth_mode를 99로 덮어쓰지 않도록
+                }
 
                 // RTH 모드 업데이트
                 ctx.rth_mode.store(pkt.mode, std::memory_order_relaxed);
@@ -461,12 +476,29 @@ private:
                 sendDriveCommand(cmd.throttle, cmd.steering);
             }
 
+            //**************
+            // Ping-Pong
+            // Ping 전송 로직 */
+            if(ctx.ping_requested.exchange(false)){
+                const char* ping = "PING\n";
+                write(serial_fd, ping, 5);
+                cout << "[핑퐁-디버깅] PING sent to STM32" << endl; //보내는지 확인
+            }
+
             // 4. 시리얼 읽기 (링버퍼에 적재)
             parser.feedFrom(serial_fd);
 
             // 5. 완성된 줄이 있으면 처리
             char line[64];
             while(parser.getLine(line, sizeof(line))) {
+
+                //Pong 응답 처리 (Ping 측정용)
+                if(strncmp(line, "PONG", 4) == 0){
+                    cout << "[핑퐁-디버깅] Rx: " << line << endl; // Pong 받는지
+
+                    sendFeedback("PONG");
+                    continue;
+                }
                 
                 int enc_val = parseEncoder(line);
                 if (enc_val == INVALID_ENC) continue;

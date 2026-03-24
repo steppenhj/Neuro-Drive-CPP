@@ -155,6 +155,10 @@
                     <button id="btn_engine" onclick="toggleEngine()">START</button>
                     <button id="btn_rth" onclick="toggleRTH()">REC</button>
                     <button id="btn_ota" onclick="openOTA()">OTA</button>
+
+                    <button id="btn_ping" onclick="startPingTest()">PING</button>
+
+                    <span>RTT: <span id="val_rtt" class="val">-</span>ms</span>
                 </div>
                 
                 <div class="dash-group" style="flex: 1;">
@@ -270,6 +274,39 @@
                 socket.emit('rth_command', {mode: 0});
             }
         }
+
+        //여기서부터 Ping pong
+        let pingStart = 0;
+        let pingCount = 0;
+        let pingTotal = 0;
+        const PING_ROUNDS = 20;
+
+        function startPingTest() {
+            pingCount = 0;
+            pingTotal = 0;
+            document.getElementById('val_rtt').innerText = '측정중...';
+            sendOnePing();
+        }
+
+        function sendOnePing() {
+            pingStart = performance.now();
+            socket.emit('ping_request');
+        }
+
+        socket.on('pong_response', () => {
+            let elapsed = performance.now() - pingStart;
+            pingTotal += elapsed;
+            pingCount++;
+
+            if (pingCount < PING_ROUNDS) {
+                sendOnePing();  // 다음 ping
+            } else {
+                let avg = (pingTotal / PING_ROUNDS).toFixed(1);
+                document.getElementById('val_rtt').innerText = avg;
+                console.log('RTT avg: ' + avg + 'ms (' + PING_ROUNDS + ' rounds)');
+            }
+        });
+        //위에까지 ping pong
 
         socket.on('rth_update', (d) => {
             const btn = document.getElementById('btn_rth');

@@ -55,6 +55,13 @@ def encoder_monitor_task():
         try:
             data, _ = feedback_sock.recvfrom(64)
             line = data.decode('utf-8', errors='ignore').strip()
+
+            #Ping-Pong추가
+            if line.startswith("PONG"):
+                print("[디버깅-핑퐁] Pong received in app.py") #여기에서 수신 안되는 가능성이 좀 있다ㅏ.
+                socketio.emit('pong_response')
+                continue
+
             if line.startswith("ENC:"):
                 speed = int(line.split(":")[1])
                 socketio.emit('encoder_update', {'speed': speed})
@@ -81,6 +88,12 @@ def handle_rth(data):
     rth_active = (mode == 2)
     send_udp_command(0.0, 0.0, mode)
     emit('rth_update', {'mode': mode})
+
+#******************
+# Phase 6 전 Ping-Pong추가
+@socketio.on('ping_request')
+def handle_ping():
+    send_udp_command(0.0, 0.0, 99) #mode=99가 ping 신호
 
 # ==========================================
 # 2. 시스템 기능
