@@ -41,6 +41,12 @@ Browser ──WebSocket──▶ Python (Flask-SocketIO)
 
 ---
 
+## Demo
+
+### Phase 4 — Return-to-Home
+
+https://github.com/user-attachments/assets/2779ef3e-39d6-4a21-8bef-ed63d195250f
+
 ## Key Features
 
 **Distributed Control** — RPi handles networking and mode logic; STM32 handles hard real-time motor control. Neither can do the other's job.
