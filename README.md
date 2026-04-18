@@ -141,7 +141,6 @@ python3 app.py
 
 **박해진 (Haejin Park)**  
 Kyungpook National University  
-Targeting embedded SW roles in automotive / defense / semiconductor industries.
 
 ---
 
