@@ -99,48 +99,12 @@ https://github.com/user-attachments/assets/2779ef3e-39d6-4a21-8bef-ed63d195250f
 
 ---
 
-## Project Structure
-
-```
-Neuro-Drive-CPP/
-├── rpi/
-│   ├── web/
-│   │   ├── static/js/
-│   │   │   ├── nipplejs.min.js      # Virtual joystick library
-│   │   │   └── socket.io.min.js     # WebSocket client
-│   │   ├── templates/
-│   │   │   └── index.html           # Control UI (joystick, telemetry, RTH)
-│   │   ├── app.py                   # Flask-SocketIO server + RTH Keep-Alive
-│   │   ├── ota_flasher.py           # Host-side OTA flashing tool (Phase 5)
-│   │   └── parkhaejin_car.bin       # Application firmware image
-│   └── control_core_oop.cpp         # C++ UDP receiver, vehicle controller, RTH logic
-│
-├── firmware/                        # STM32CubeIDE project
-│   └── Core/Src/
-│       └── main.c                   # FreeRTOS tasks, UART ISR, PWM, watchdog, bootloader
-│
-├── assets/                          # Architecture diagrams (Rhapsody exports)
-│   ├── omd_diagram.png
-│   ├── sequence_diagram.png
-│   ├── statechart_diagram.png
-│   └── usecase_diagram.png
-│
-├── phase_1_code/                    # Monolithic RPi control (PCA9685, I2C)
-├── phase_2_code/                    # STM32 integration, UART polling, ASCII protocol
-├── phase_3_code/                    # FreeRTOS, ISR, binary protocol, 2-DOF PID
-├── phase_4_code/                    # RTH, protocol extension, Keep-Alive
-├── phase_5_code/                    # OTA bootloader, CRC handshake, IAP
-└── README.md
-```
-
----
-
 ## Getting Started
 
 ### Prerequisites
-- Raspberry Pi 5 (Bookworm OS)
+- Raspberry Pi 5
 - STM32 Nucleo-F411RE + STM32CubeIDE
-- Python 3.11+ with `flask-socketio`, `eventlet`
+- Python 3.11
 
 ### Run
 

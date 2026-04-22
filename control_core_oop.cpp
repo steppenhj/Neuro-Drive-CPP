@@ -46,7 +46,7 @@
     float steering = 0.0f;
     std::mutex data_mutex; //throttle, steering 보호용
 
-    // ----- 시스템 플래그 (atomic -> mutex 불필요) ------
+    // ----- 시스템 플래그 (atomic -> mutex까진 불필요) ------
     std::atomic<int64_t> last_rx_us{0};  //WatchDog: 마지막 수신 시간 (마이크로s)
     std::atomic<bool> keep_running{true}; //프로그램 종료 플래그
 
@@ -56,7 +56,7 @@
     //****************************
     // Phase 6 들어가기 전,
     // Ping Pong으로 
-    // 시간을 측정하자
+    // 시간을 측정하자 (전체 시스템의 핑퐁)
     //  */
     std::atomic<bool> ping_requested{false};
 
