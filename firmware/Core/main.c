@@ -575,6 +575,17 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 			{
 				buffer[buf_index] = 0;
 
+				//************ Phase 6 들어가기 전 *(******
+				//**************** Ping Pong 추가해서 시간 측정*********
+				if(strcmp((char*)buffer, "PING")==0)
+				{
+					HAL_UART_Transmit(&huart2, (uint8_t*)"PONG\r\n", 6, 100);
+					buf_index = 0;
+					memset(buffer, 0, sizeof(buffer));
+					HAL_UART_Receive_IT(&huart2, &rx_data, 1);
+					return; //모터 명령 파싱으로 안 넘어감
+				}
+
 				int temp_speed = 0;
 				int temp_angle = 1500;
 
@@ -693,14 +704,13 @@ void StartDefaultTask(void *argument)
 //    else
     {
         // 데이터 없으면 대기 (RTOS 스케줄링 양보)
-    	// 이제 폴링 방식에서 인터럽트로 바꿀거라서 주석 처리
-      // 그래도 가지고 있으려고 함.
+    	// 이제 폴링 방식에서 인터럽트로 바꿀거라서 주석때림
 
     	//****엔코더 때문에 바뀜
     	char enc_buf[32];
     	int len = snprintf(enc_buf, sizeof(enc_buf), "ENC:%d\r\n", current_speed_rpm);
     	HAL_UART_Transmit(&huart2, (uint8_t*)enc_buf, len, 100);
-        osDelay(50); // 할 거 없으니깐 대기 -> 엔코더 받는 역할해보자
+        osDelay(50); // 할 거 없으니깐 대기 (자는거임) -> 엔코더 받는 역할해보자
     }
   }
   /* USER CODE END 5 */
@@ -737,6 +747,8 @@ void StartTask02(void *argument)
 		  .output_min = -999.0f,
 		  .output_max = 999.0f
   };
+
+
 
   // 성능 측정용 변수
   uint32_t last_wake_time = osKernelGetTickCount();
@@ -780,13 +792,10 @@ void StartTask02(void *argument)
       // ---------------------------------------------------------
 
       //*************엔코더 값 보내기
-      // 10ms마다 누적 → 50ms(5회)마다 Task_Comm에 전달
-      static int16_t enc_acc = 0;
+      // Task_Motor 루프 안, 엔코더 계산 바로 아래에 추가
       static uint8_t enc_tick = 0;
-      enc_acc += diff;  // 매 10ms마다 누적
-      if(++enc_tick >= 5) {
-          current_speed_rpm = enc_acc;  // 50ms 누적값 저장
-          enc_acc = 0;
+      if(++enc_tick >= 5) { // 100Hz 루프에서 5번마다 = 20Hz 전송
+          current_speed_rpm = diff;  //전역변수에 저장. 프린트 안하기
           enc_tick = 0;
       }
 
@@ -850,6 +859,15 @@ void StartTask02(void *argument)
       if (current_angle > SERVO_MAX_US) current_angle = SERVO_MAX_US;
       __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, (uint32_t)current_angle);
 
+      //*******
+      //중요함. OTA 성공 검증용 LED 깜빡이기
+      // *******
+      static uint16_t led_counter = 0;
+      if(++led_counter >= 100) {
+    	  //100Hz 루프에서 100번 = 1초
+    	  HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+    	  led_counter = 0;
+      }
       // 주기 제어 (100Hz)
       last_wake_time = current_time;
       osDelayUntil(last_wake_time + 10);

@@ -12,6 +12,9 @@
  * @note 변경 이력:
  *      v1: 단일 controlLoop()에 모든 로직 집중
  *      v2: 책임 분리 - 각 클래스가 하나의 역할만 수행
+ *
+ *      RTH를 CPP (RPi) 에 넣은 이유, STM32가 아닌: mcu sram은 매우 작기에 memory overflow가 날 수 있다고 판단함
+ *                                              또, M4 칩이니깐 FPU(부동소수점 연산 유닛)의 덕이 있지 않겠나 라고 생각함
  * 
  *  compile 명령어: g++ -std=c++17 -O2 -pthread -o control_core control_core_oop.cpp
  */
