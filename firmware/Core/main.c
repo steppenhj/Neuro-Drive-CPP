@@ -42,6 +42,11 @@ typedef struct {
 #define SERVO_MAX_US              2350
 #define SERVO_CENTER_US           1500
 #define TELEMETRY_PERIOD_MS       50
+
+// 4/23 PID 제어 다시 시도
+#define PWM_TO_ENC_SCALE 0.1f;
+// PWM999->엔코더 100이면 0.1, 엔코더 50이면 0.05 
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -729,23 +734,20 @@ void StartTask02(void *argument)
   /* USER CODE BEGIN StartTask02 */
   // 받을 빈 상자 준비
   MotorCommand_t rcv_msg;
-
-  int current_speed = 0;
   int current_angle = 1500;
-
-  //PID 관련
-  int target_speed = 0;
+  int target_pwm = 0; //Python이 보낸 원본 PWM (Feedforward용)
+  float target_enc = 0.0f;  // 엔코더 단위로 변환된 목표
   float error = 0.0f;
-  int pwm_output = 0;
+  int final_pwm = 0;
 
   PID_t pid_speed = {
-		  .kp = 0.5f,
+		  .kp = 0.5f,  // 4/23 단위 바뀌니깐 게인 재조정 필요함
 		  .ki = 0.0f,
 		  .kd = 0.0f,
 		  .integral = 0.0f,
 		  .prev_error = 0.0f,
-		  .output_min = -999.0f,
-		  .output_max = 999.0f
+		  .output_min = -500.0f, // PID는 "보정량"만 담당하므로 999->500 축소
+		  .output_max = 500.0f
   };
 
 
@@ -823,31 +825,40 @@ void StartTask02(void *argument)
 //          printf("CMD_RECV: Speed=%d, Angle=%d\r\n", current_speed, current_angle);
       }
 
-      error = target_speed - current_speed_rpm;
-      current_speed = (int)PID_Calculate(&pid_speed, error);
+      // 단위 통일: PWM 목표 -> 엔코더 목표로 변환
+      target_enc = (float)target_pwm * PWM_TO_ENC_SCALE;
+
+      // 이제 error가 "엔코더 단위"로서 의미가 있음
+      error = target_enc - (float)current_speed_rpm;
+      //PID는 "보정량(ΔPWM)"만 계산
+      float pid_correction = PID_Calculate(&pid_speed, error);
+
+      //** Feedforward(원본 PWM) + Feedback(PID보정) 결합 */
+      final_pwm = target_pwm + (int)pid_correction;
+
 
       // ---------------------------------------------------------
       // 모터 구동 로직
       // ---------------------------------------------------------
 
       // DC 모터 제어
-      if (current_speed > MOTOR_PWM_MAX) current_speed = MOTOR_PWM_MAX;
-      if (current_speed < -MOTOR_PWM_MAX) current_speed = -MOTOR_PWM_MAX;
+      if (final_pwm > MOTOR_PWM_MAX) final_pwm = MOTOR_PWM_MAX;
+      if (final_pwm < -MOTOR_PWM_MAX) final_pwm = -MOTOR_PWM_MAX;
 
       //전진
-      if (current_speed > 0) {
+      if (final_pwm > 0) {
     	  // IN1=HIGH, IN2=LOW (정방향 회전)
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
           //PWM값 설정 (속도 조절)
-          __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)current_speed);
+          __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)final_pwm);
       }
       //후진
-      else if (current_speed < 0) {
+      else if (final_pwm < 0) {
     	  //IN1=LOW, IN2=HIGH (역방향 회전)
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
-          __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)abs(current_speed));
+          __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)abs(final_pwm));
       } else {
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
