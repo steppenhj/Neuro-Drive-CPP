@@ -693,13 +693,14 @@ void StartDefaultTask(void *argument)
 //    else
     {
         // 데이터 없으면 대기 (RTOS 스케줄링 양보)
-    	// 이제 폴링 방식에서 인터럽트로 바꿀거라서 주석때림
+    	// 이제 폴링 방식에서 인터럽트로 바꿀거라서 주석 처리
+      // 그래도 가지고 있으려고 함.
 
     	//****엔코더 때문에 바뀜
     	char enc_buf[32];
     	int len = snprintf(enc_buf, sizeof(enc_buf), "ENC:%d\r\n", current_speed_rpm);
     	HAL_UART_Transmit(&huart2, (uint8_t*)enc_buf, len, 100);
-        osDelay(50); // 할 거 없으니깐 대기 (자는거임) -> 엔코더 받는 역할해보자
+        osDelay(50); // 할 거 없으니깐 대기 -> 엔코더 받는 역할해보자
     }
   }
   /* USER CODE END 5 */
