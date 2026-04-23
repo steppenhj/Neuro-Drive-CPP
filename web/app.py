@@ -209,23 +209,29 @@ def handle_control_command(data):
         # ========================================================
         
         # (1) 조향이 절반 이상(0.5) 꺾였고, 스로틀 입력이 조금이라도 있다면?
-        if abs(steering) > 0.5 and abs(raw_throttle) > 0.05:
+        # if abs(steering) > 0.5 and abs(raw_throttle) > 0.05:
             
-            # (2) 부스트 배율도 더 과감하게 (0.8 -> 2.0)
-            boost_factor = 1.0 + (abs(steering) * 2.0)
-            final_throttle = raw_throttle * boost_factor
+        #     # (2) 부스트 배율도 더 과감하게 (0.8 -> 2.0)
+        #     boost_factor = 1.0 + (abs(steering) * 2.0)
+        #     final_throttle = raw_throttle * boost_factor
             
-            # (3) ★ "최소 기동 토크" 강제 주입
-            # 조향 시 마찰을 이기기 위한 최소 PWM 비율 (0.4 = 40%)
-            min_torque = 0.40 
+        #     # (3) ★ "최소 기동 토크" 강제 주입
+        #     # 조향 시 마찰을 이기기 위한 최소 PWM 비율 (0.4 = 40%)
+        #     min_torque = 0.40 
             
-            if final_throttle > 0:
-                final_throttle = max(final_throttle, min_torque)
-            elif final_throttle < 0:
-                final_throttle = min(final_throttle, -min_torque)
+        #     if final_throttle > 0:
+        #         final_throttle = max(final_throttle, min_torque)
+        #     elif final_throttle < 0:
+        #         final_throttle = min(final_throttle, -min_torque)
 
-        # 3. 안전장치: -1.0 ~ 1.0 범위 강제
-        final_throttle = max(-1.0, min(1.0, final_throttle))
+        # # 3. 안전장치: -1.0 ~ 1.0 범위 강제
+        # final_throttle = max(-1.0, min(1.0, final_throttle))
+
+        #**********4/23*************
+        #*******boost는 없앤다, PID로
+        final_throttle = raw_throttle
+        final_throttle = max(-1.0, min(1.0, final_throttle)) #안전 클리핑은 유지
+        
 
         # [디버깅] 
         # 디버깅 이유는 조향 시에 차량 속도가 너무 느려져서
