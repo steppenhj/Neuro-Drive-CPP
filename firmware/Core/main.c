@@ -44,7 +44,7 @@ typedef struct {
 #define TELEMETRY_PERIOD_MS       50
 
 // 4/23 PID 제어 다시 시도
-#define PWM_TO_ENC_SCALE 0.1f;
+#define PWM_TO_ENC_SCALE 0.1f
 // PWM999->엔코더 100이면 0.1, 엔코더 50이면 0.05 
 
 /* USER CODE END PD */
@@ -813,7 +813,7 @@ void StartTask02(void *argument)
     	  //위 방식이 Open-Loop임 (명령을 그대로 PWM에 떄려 박음)
 
     	  //목표: Closed-Loop (엔코더 피드백으로 보정)
-    	  target_speed = rcv_msg.speed; // 목표값
+    	  target_pwm = rcv_msg.speed; // 목표값
     	  current_angle = rcv_msg.angle;
 //
 //    	  error = target_speed - current_speed_rpm; //오차

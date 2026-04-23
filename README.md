@@ -91,10 +91,10 @@ https://github.com/user-attachments/assets/2779ef3e-39d6-4a21-8bef-ed63d195250f
 |-------|-----------|
 | Web UI | HTML/CSS/JS, nipplejs (joystick), Socket.IO |
 | Server | Python 3.11, Flask-SocketIO, eventlet |
-| Control Core | C++17, UDP socket, POSIX threads, mutex |
+| Control Core | C++17, UDP socket, threads, mutex |
 | Firmware | C (STM32 HAL), FreeRTOS, UART ISR, TIM/PWM, custom bootloader |
 | Communication | WebSocket, UDP (struct pack), UART (115200 baud), CAN 2.0, SPI |
-| Design | IBM Rhapsody (MBSE), STM32CubeIDE |
+| Design | IBM Rhapsody | StarUML (MBSE), STM32CubeIDE |
 | Hardware | Raspberry Pi 5, STM32 Nucleo-F411RE, L298N, Ackermann chassis |
 
 ---
