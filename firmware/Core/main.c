@@ -45,7 +45,7 @@ typedef struct {
 
 // 4/23 PID 제어 다시 시도
 #define PWM_TO_ENC_SCALE 0.1f
-// PWM999->엔코더 100이면 0.1, 엔코더 50이면 0.05 
+// PWM999->엔코더 100이면 0.1, 엔코더 50이면 0.05
 
 /* USER CODE END PD */
 
@@ -772,7 +772,7 @@ void StartTask02(void *argument)
   int final_pwm = 0;
 
   PID_t pid_speed = {
-		  .kp = 0.5f,  // 4/23 단위 바뀌니깐 게인 재조정 필요함
+		  .kp = 3.0f,  // 4/23 단위 바뀌니깐 게인 재조정 필요함
 		  .ki = 0.0f,
 		  .kd = 0.0f,
 		  .integral = 0.0f,
