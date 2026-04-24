@@ -91,8 +91,11 @@ volatile uint32_t last_command_time = 0;
 
 // UART 수신 버퍼
 uint8_t rx_data;
-uint8_t buffer[64];
-uint8_t buf_index = 0;
+// uint8_t buffer[64];
+// uint8_t buf_index = 0;
+
+// PING 수신 플래그 (ISR이 세팅, Task_Comm이 소비)
+volatile uint8_t ping_received = 0;
 
 // 큐 핸들 선언
 osMessageQueueId_t myQueueHandle;
@@ -570,7 +573,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		// 일단 데이터 오는지 확인해야 하니깐 데이터 오면 무조건 깜빡이기
 		HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 
-		static uint8_t buffer[64]; //static으로 선언 ..
+		static uint8_t buffer[64]; //static으로 선언했다
 		static uint8_t buf_index = 0;
 
 		// 문장 끝 확인
@@ -582,14 +585,28 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 				//************ Phase 6 들어가기 전 *(******
 				//**************** Ping Pong 추가해서 시간 측정*********
-				if(strcmp((char*)buffer, "PING")==0)
-				{
-					HAL_UART_Transmit(&huart2, (uint8_t*)"PONG\r\n", 6, 100);
-					buf_index = 0;
-					memset(buffer, 0, sizeof(buffer));
-					HAL_UART_Receive_IT(&huart2, &rx_data, 1);
-					return; //모터 명령 파싱으로 안 넘어감
-				}
+        //***********4/24중요
+        // PONG이 현재 ISR에 있어, UART 자체에 두가지 문제가 발생함
+        // 1) ISR에서 blocking UART 100ms 대기
+        // 2) Race Condition
+        // 해결하기 위해 PONG을 ISR에서 Task로 옮김
+        //  */
+				// if(strcmp((char*)buffer, "PING")==0)
+				// {
+				// 	HAL_UART_Transmit(&huart2, (uint8_t*)"PONG\r\n", 6, 100);
+				// 	buf_index = 0;
+				// 	memset(buffer, 0, sizeof(buffer));
+				// 	HAL_UART_Receive_IT(&huart2, &rx_data, 1);
+				// 	return; //모터 명령 파싱으로 안 넘어감
+				// }
+        if(strcmp((char*)buffer, "PING")==0)
+        {
+          ping_received = 1;
+          buf_index = 0;
+          memset(buffer, 0, sizeof(buffer));
+          HAL_UART_Receive_IT(&huart2, &rx_data, 1);
+          return;
+        }
 
 				int temp_speed = 0;
 				int temp_angle = 1500;
@@ -660,6 +677,20 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
+    //4/24 PING 요청이 들어와 있으면 PONG 응답
+    // ISR 대신 Task에서 송신하여 huart2 Race Condition 방지
+    if(ping_received)
+    {
+      ping_received=0; //플래그 해제 (다음 PING 수신 대비임)
+      HAL_UART_Transmit(&huart2, (uint8_t*)"PONG\r\n", 6, 10);
+    }
+
+    //엔코더 값 송신
+    char enc_buf[32];
+    int len = snprintf(enc_buf, sizeof(enc_buf), "ENC:%d\r\n", current_speed_rpm);
+    HAL_UART_Transmit(&huart2, (uint8_t*)enc_buf, len, 10);
+
+    osDelay(10);
     // [Polling] 데이터 수신 확인
 //    if (HAL_UART_Receive(&huart2, &rx_data, 1, 1) == HAL_OK)
 //    {
@@ -707,16 +738,16 @@ void StartDefaultTask(void *argument)
 //        }
 //    }
 //    else
-    {
-        // 데이터 없으면 대기 (RTOS 스케줄링 양보)
-    	// 이제 폴링 방식에서 인터럽트로 바꿀거라서 주석때림
+    // {
+    //     // 데이터 없으면 대기 (RTOS 스케줄링 양보)
+    // 	// 이제 폴링 방식에서 인터럽트로 바꿀거라서 주석때림
 
-    	//****엔코더 때문에 바뀜
-    	char enc_buf[32];
-    	int len = snprintf(enc_buf, sizeof(enc_buf), "ENC:%d\r\n", current_speed_rpm);
-    	HAL_UART_Transmit(&huart2, (uint8_t*)enc_buf, len, 100);
-        osDelay(50); // 할 거 없으니깐 대기 (자는거임) -> 엔코더 받는 역할해보자
-    }
+    // 	//****엔코더 때문에 바뀜
+    // 	char enc_buf[32];
+    // 	int len = snprintf(enc_buf, sizeof(enc_buf), "ENC:%d\r\n", current_speed_rpm);
+    // 	HAL_UART_Transmit(&huart2, (uint8_t*)enc_buf, len, 100);
+    //     osDelay(50); // 할 거 없으니깐 대기 (자는거임) -> 엔코더 받는 역할해보자
+    // }
   }
   /* USER CODE END 5 */
 }
