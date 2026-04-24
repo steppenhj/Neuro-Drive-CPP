@@ -15,3 +15,4 @@ build/
 web/captured_data/
 *.zip
 __pycache__/
+parkhaejin_car.bin
