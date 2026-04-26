@@ -59,6 +59,36 @@ Browser ──WebSocket──▶ Python (Flask-SocketIO)
 
 ---
 
+## MBSE 설계 다이어그램
+
+IBM Rhapsody를 사용해 요구사항 정의부터 구현까지 일관된 모델로 문서화했습니다.
+
+### 유스케이스 다이어그램
+
+![Use Case Diagram](assets/usecase_diagram.png)
+
+Operator가 시스템과 상호작용하는 주요 유스케이스를 정의합니다. `Control Vehicle Movement`는 Cornering Boost 적용, Output Power 제한, Return-to-Home을 `<<include>>`하며, 하드웨어 환경(Hardware_Environment)이 Fail-Safe 실행에 참여합니다.
+
+### 클래스 다이어그램 (C++ Control Core)
+
+![Class Diagram](assets/architecture_diagram.png)
+
+RPi 측 Control Core의 C++ 클래스 구조입니다. `SharedContext`가 `std::mutex`와 `std::atomic`으로 보호되는 공유 상태를 소유하며, `UdpReceiver`와 `VehicleController`가 이를 참조합니다.
+
+### 시퀀스 다이어그램 (제어 명령 흐름)
+
+![Sequence Diagram](assets/sequence_diagram.png)
+
+조이스틱 입력이 Web UI → Python Middleware → C++ Core → STM32까지 전달되는 전 계층 데이터 흐름을 보여줍니다. WebSocket JSON → UDP Binary Packet → UART String 순으로 프로토콜이 변환됩니다.
+
+### 상태차트 다이어그램 (RTH & Fail-Safe FSM)
+
+![State Chart Diagram](assets/statechart_diagram.png)
+
+시스템의 동작 상태를 정의합니다. `OPERATING` 상태에서 RTH 명령 수신 시 `RTH_RECORDING` → `RTH_ACTIVE`로 전이하며, Watchdog 타임아웃(`timeout == true`) 발생 시 `FAIL_SAFE`로 전이합니다.
+
+---
+
 ## RTH 시연 영상
 
 ### Phase 4 — Return-to-Home
