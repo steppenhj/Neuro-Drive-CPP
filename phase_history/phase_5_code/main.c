@@ -42,6 +42,11 @@ typedef struct {
 #define SERVO_MAX_US              2350
 #define SERVO_CENTER_US           1500
 #define TELEMETRY_PERIOD_MS       50
+
+// 4/23 PID 제어 다시 시도
+#define PWM_TO_ENC_SCALE 0.1f
+// PWM999->엔코더 100이면 0.1, 엔코더 50이면 0.05
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -86,8 +91,11 @@ volatile uint32_t last_command_time = 0;
 
 // UART 수신 버퍼
 uint8_t rx_data;
-uint8_t buffer[64];
-uint8_t buf_index = 0;
+// uint8_t buffer[64];
+// uint8_t buf_index = 0;
+
+// PING 수신 플래그 (ISR이 세팅, Task_Comm이 소비)
+volatile uint8_t ping_received = 0;
 
 // 큐 핸들 선언
 osMessageQueueId_t myQueueHandle;
@@ -565,7 +573,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		// 일단 데이터 오는지 확인해야 하니깐 데이터 오면 무조건 깜빡이기
 		HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 
-		static uint8_t buffer[64]; //static으로 선언 ..
+		static uint8_t buffer[64]; //static으로 선언했다
 		static uint8_t buf_index = 0;
 
 		// 문장 끝 확인
@@ -574,6 +582,31 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 			if(buf_index > 0)
 			{
 				buffer[buf_index] = 0;
+
+				//************ Phase 6 들어가기 전 *(******
+				//**************** Ping Pong 추가해서 시간 측정*********
+        //***********4/24중요
+        // PONG이 현재 ISR에 있어, UART 자체에 두가지 문제가 발생함
+        // 1) ISR에서 blocking UART 100ms 대기
+        // 2) Race Condition
+        // 해결하기 위해 PONG을 ISR에서 Task로 옮김
+        //  */
+				// if(strcmp((char*)buffer, "PING")==0)
+				// {
+				// 	HAL_UART_Transmit(&huart2, (uint8_t*)"PONG\r\n", 6, 100);
+				// 	buf_index = 0;
+				// 	memset(buffer, 0, sizeof(buffer));
+				// 	HAL_UART_Receive_IT(&huart2, &rx_data, 1);
+				// 	return; //모터 명령 파싱으로 안 넘어감
+				// }
+        if(strcmp((char*)buffer, "PING")==0)
+        {
+          ping_received = 1;
+          buf_index = 0;
+          memset(buffer, 0, sizeof(buffer));
+          HAL_UART_Receive_IT(&huart2, &rx_data, 1);
+          return;
+        }
 
 				int temp_speed = 0;
 				int temp_angle = 1500;
@@ -644,6 +677,20 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
+    //4/24 PING 요청이 들어와 있으면 PONG 응답
+    // ISR 대신 Task에서 송신하여 huart2 Race Condition 방지
+    if(ping_received)
+    {
+      ping_received=0; //플래그 해제 (다음 PING 수신 대비임)
+      HAL_UART_Transmit(&huart2, (uint8_t*)"PONG\r\n", 6, 10);
+    }
+
+    //엔코더 값 송신
+    char enc_buf[32];
+    int len = snprintf(enc_buf, sizeof(enc_buf), "ENC:%d\r\n", current_speed_rpm);
+    HAL_UART_Transmit(&huart2, (uint8_t*)enc_buf, len, 10);
+
+    osDelay(10);
     // [Polling] 데이터 수신 확인
 //    if (HAL_UART_Receive(&huart2, &rx_data, 1, 1) == HAL_OK)
 //    {
@@ -691,16 +738,16 @@ void StartDefaultTask(void *argument)
 //        }
 //    }
 //    else
-    {
-        // 데이터 없으면 대기 (RTOS 스케줄링 양보)
-    	// 이제 폴링 방식에서 인터럽트로 바꿀거라서 주석때림
+    // {
+    //     // 데이터 없으면 대기 (RTOS 스케줄링 양보)
+    // 	// 이제 폴링 방식에서 인터럽트로 바꿀거라서 주석때림
 
-    	//****엔코더 때문에 바뀜
-    	char enc_buf[32];
-    	int len = snprintf(enc_buf, sizeof(enc_buf), "ENC:%d\r\n", current_speed_rpm);
-    	HAL_UART_Transmit(&huart2, (uint8_t*)enc_buf, len, 100);
-        osDelay(50); // 할 거 없으니깐 대기 (자는거임) -> 엔코더 받는 역할해보자
-    }
+    // 	//****엔코더 때문에 바뀜
+    // 	char enc_buf[32];
+    // 	int len = snprintf(enc_buf, sizeof(enc_buf), "ENC:%d\r\n", current_speed_rpm);
+    // 	HAL_UART_Transmit(&huart2, (uint8_t*)enc_buf, len, 100);
+    //     osDelay(50); // 할 거 없으니깐 대기 (자는거임) -> 엔코더 받는 역할해보자
+    // }
   }
   /* USER CODE END 5 */
 }
@@ -718,23 +765,20 @@ void StartTask02(void *argument)
   /* USER CODE BEGIN StartTask02 */
   // 받을 빈 상자 준비
   MotorCommand_t rcv_msg;
-
-  int current_speed = 0;
   int current_angle = 1500;
-
-  //PID 관련
-  int target_speed = 0;
+  int target_pwm = 0; //Python이 보낸 원본 PWM (Feedforward용)
+  float target_enc = 0.0f;  // 엔코더 단위로 변환된 목표
   float error = 0.0f;
-  int pwm_output = 0;
+  int final_pwm = 0;
 
   PID_t pid_speed = {
-		  .kp = 0.5f,
+		  .kp = 3.0f,  // 4/23 단위 바뀌니깐 게인 재조정 필요함
 		  .ki = 0.0f,
 		  .kd = 0.0f,
 		  .integral = 0.0f,
 		  .prev_error = 0.0f,
-		  .output_min = -999.0f,
-		  .output_max = 999.0f
+		  .output_min = -500.0f, // PID는 "보정량"만 담당하므로 999->500 축소
+		  .output_max = 500.0f
   };
 
 
@@ -800,7 +844,7 @@ void StartTask02(void *argument)
     	  //위 방식이 Open-Loop임 (명령을 그대로 PWM에 떄려 박음)
 
     	  //목표: Closed-Loop (엔코더 피드백으로 보정)
-    	  target_speed = rcv_msg.speed; // 목표값
+    	  target_pwm = rcv_msg.speed; // 목표값
     	  current_angle = rcv_msg.angle;
 //
 //    	  error = target_speed - current_speed_rpm; //오차
@@ -812,31 +856,40 @@ void StartTask02(void *argument)
 //          printf("CMD_RECV: Speed=%d, Angle=%d\r\n", current_speed, current_angle);
       }
 
-      error = target_speed - current_speed_rpm;
-      current_speed = (int)PID_Calculate(&pid_speed, error);
+      // 단위 통일: PWM 목표 -> 엔코더 목표로 변환
+      target_enc = (float)target_pwm * PWM_TO_ENC_SCALE;
+
+      // 이제 error가 "엔코더 단위"로서 의미가 있음
+      error = target_enc - (float)current_speed_rpm;
+      //PID는 "보정량(ΔPWM)"만 계산
+      float pid_correction = PID_Calculate(&pid_speed, error);
+
+      //** Feedforward(원본 PWM) + Feedback(PID보정) 결합 */
+      final_pwm = target_pwm + (int)pid_correction;
+
 
       // ---------------------------------------------------------
       // 모터 구동 로직
       // ---------------------------------------------------------
 
       // DC 모터 제어
-      if (current_speed > MOTOR_PWM_MAX) current_speed = MOTOR_PWM_MAX;
-      if (current_speed < -MOTOR_PWM_MAX) current_speed = -MOTOR_PWM_MAX;
+      if (final_pwm > MOTOR_PWM_MAX) final_pwm = MOTOR_PWM_MAX;
+      if (final_pwm < -MOTOR_PWM_MAX) final_pwm = -MOTOR_PWM_MAX;
 
       //전진
-      if (current_speed > 0) {
+      if (final_pwm > 0) {
     	  // IN1=HIGH, IN2=LOW (정방향 회전)
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
           //PWM값 설정 (속도 조절)
-          __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)current_speed);
+          __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)final_pwm);
       }
       //후진
-      else if (current_speed < 0) {
+      else if (final_pwm < 0) {
     	  //IN1=LOW, IN2=HIGH (역방향 회전)
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
-          __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)abs(current_speed));
+          __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)abs(final_pwm));
       } else {
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);

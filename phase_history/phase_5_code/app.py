@@ -55,6 +55,13 @@ def encoder_monitor_task():
         try:
             data, _ = feedback_sock.recvfrom(64)
             line = data.decode('utf-8', errors='ignore').strip()
+
+            #Ping-Pong추가
+            if line.startswith("PONG"):
+                print("[디버깅-핑퐁] Pong received in app.py") #여기에서 수신 안되는 가능성이 좀 있다ㅏ.
+                socketio.emit('pong_response')
+                continue
+
             if line.startswith("ENC:"):
                 speed = int(line.split(":")[1])
                 socketio.emit('encoder_update', {'speed': speed})
@@ -81,6 +88,12 @@ def handle_rth(data):
     rth_active = (mode == 2)
     send_udp_command(0.0, 0.0, mode)
     emit('rth_update', {'mode': mode})
+
+#******************
+# Phase 6 전 Ping-Pong추가
+@socketio.on('ping_request')
+def handle_ping():
+    send_udp_command(0.0, 0.0, 99) #mode=99가 ping 신호
 
 # ==========================================
 # 2. 시스템 기능
@@ -186,29 +199,30 @@ def handle_control_command(data):
         # 알고리즘이다. 결국 성공. 조향 시에 속도 빨라짐.
         # 그러나 추후에 PID 제어 성공하면
         # 이건 없어질 수도 있다.
-
+        #*******************************************
+        # 4/23 드디어 원인을 알았고, 이 코드는 없애도 된다
+        # PID의 단위 불일치가 원인이었고, 
+        # Firmware 수정할 예정이다.
         #PID는 어느 정도 했는데 이거는 일단 놔두는 게 좋다고 판단함
         # ========================================================
-        
         # (1) 조향이 절반 이상(0.5) 꺾였고, 스로틀 입력이 조금이라도 있다면?
-        if abs(steering) > 0.5 and abs(raw_throttle) > 0.05:
-            
-            # (2) 부스트 배율도 더 과감하게 (0.8 -> 2.0)
-            boost_factor = 1.0 + (abs(steering) * 2.0)
-            final_throttle = raw_throttle * boost_factor
-            
-            # (3) ★ "최소 기동 토크" 강제 주입
-            # 조향 시 마찰을 이기기 위한 최소 PWM 비율 (0.4 = 40%)
-            min_torque = 0.40 
-            
-            if final_throttle > 0:
-                final_throttle = max(final_throttle, min_torque)
-            elif final_throttle < 0:
-                final_throttle = min(final_throttle, -min_torque)
-
-        # 3. 안전장치: -1.0 ~ 1.0 범위 강제
-        final_throttle = max(-1.0, min(1.0, final_throttle))
-
+        # if abs(steering) > 0.5 and abs(raw_throttle) > 0.05:
+        #     # (2) 부스트 배율도 더 과감하게 (0.8 -> 2.0)
+        #     boost_factor = 1.0 + (abs(steering) * 2.0)
+        #     final_throttle = raw_throttle * boost_factor
+        #     # (3) ★ "최소 기동 토크" 강제 주입
+        #     # 조향 시 마찰을 이기기 위한 최소 PWM 비율 (0.4 = 40%)
+        #     min_torque = 0.40 
+        #     if final_throttle > 0:
+        #         final_throttle = max(final_throttle, min_torque)
+        #     elif final_throttle < 0:
+        #         final_throttle = min(final_throttle, -min_torque)
+        # # 3. 안전장치: -1.0 ~ 1.0 범위 강제
+        # final_throttle = max(-1.0, min(1.0, final_throttle))
+        #**********4/23*************
+        #*******boost는 없앤다, PID로
+        final_throttle = raw_throttle
+        final_throttle = max(-1.0, min(1.0, final_throttle)) #안전 클리핑은 유지
         # [디버깅] 
         # 디버깅 이유는 조향 시에 차량 속도가 너무 느려져서
         # boost 변수 값을 만들어서 조향 시에 속도 올려줄려고 확인한 것임
@@ -265,7 +279,6 @@ def handle_firmware_upload(data):
     #     save_path = os.path.join(os.path.dirname(__file__), f'_temp_{filename}')
     #     with open(save_path, 'wb') as f:
     #         f.write(bin_data)
-
 
     #     file_size = os.path.getsize(save_path)
     #     emit('ota_status', {'percent': 0, 'message': f'파일 수신 완료: {file_size} bytes'})
