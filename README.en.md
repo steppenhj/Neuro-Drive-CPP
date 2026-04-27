@@ -116,7 +116,7 @@ https://github.com/user-attachments/assets/2779ef3e-39d6-4a21-8bef-ed63d195250f
 
 # 2. Build C++ control core on RPi
 cd rpi/
-g++ -o drive_server control_core_oop.cpp -pthread
+g++ -o drive_server src/control_core_oop.cpp -pthread
 
 # 3. Start web server
 cd rpi/web/

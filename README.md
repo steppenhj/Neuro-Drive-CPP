@@ -166,7 +166,7 @@ https://github.com/user-attachments/assets/81a38263-ff0c-47a8-944d-1e0a582e165a
 
 # 2. RPi에서 C++ Control Core 빌드
 cd rpi/
-g++ -o drive_server control_core_oop.cpp -pthread
+g++ -o drive_server src/control_core_oop.cpp -pthread
 
 # 3. 웹 서버 시작
 cd rpi/web/

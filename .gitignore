@@ -6,11 +6,12 @@ venv/
 # VS Code 설정 파일 무시
 .vscode/
 
-# C++ 빌드 파일 무시 (나중에 중요해짐!)
+# C++ 빌드 파일 무시
 build/
 *.o
 *.out
 *.exe
+drive_server
 
 web/captured_data/
 *.zip
