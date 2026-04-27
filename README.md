@@ -89,11 +89,31 @@ RPi 측 Control Core의 C++ 클래스 구조입니다. `SharedContext`가 `std::
 
 ---
 
-## RTH 시연 영상
+## Phase 6 — CAN Bus 다이어그램
+
+### 블록 다이어그램 (3노드 CAN 아키텍처)
+
+![Phase 6 Block Diagram](assets/phase6_block_diagram.png)
+
+RPi5(Gateway), STM32F446RE(MotorECU), STM32F411RE(SensorECU) 3노드가 MCP2515(SPI→CAN) + TJA1050(트랜시버)를 통해 CAN 2.0 버스로 연결됩니다. 단일 UART 병목을 해소하고 노드별 책임을 분리합니다.
+
+### 시퀀스 다이어그램 (CAN 메시지 흐름 & 장애물 대응)
+
+![Phase 6 Sequence Diagram](assets/phase6_sequence_diagram.png)
+
+`0x100 MotorCMD`(50ms), `0x200 MotorStatus`(100ms), `0x300 SensorData`(100ms, broadcast) 세 CAN ID로 노드 간 통신을 구성합니다. SensorECU가 거리 20cm 미만을 감지하면 MotorECU가 자율적으로 PWM을 0으로 설정(자동 정지)하고, 상태를 Gateway를 거쳐 WebUI까지 전파합니다.
+
+---
+
+## 시연 영상
 
 ### Phase 4 — Return-to-Home
 
 https://github.com/user-attachments/assets/2779ef3e-39d6-4a21-8bef-ed63d195250f
+
+### Phase 5 — OTA Firmware 업데이트
+
+https://github.com/user-attachments/assets/81a38263-ff0c-47a8-944d-1e0a582e165a
 
 ---
 
