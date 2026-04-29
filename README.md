@@ -151,6 +151,24 @@ https://github.com/user-attachments/assets/81a38263-ff0c-47a8-944d-1e0a582e165a
 
 ---
 
+## 하드웨어
+
+전체 부품 목록은 [docs/hardware.md](docs/hardware.md)에서 확인할 수 있습니다.
+
+| 구성 | 부품 |
+|------|------|
+| MPU | Raspberry Pi 5 (4GB) |
+| MCU — Main | STM32 NUCLEO-F411RE (SensorECU, Phase 1~5) |
+| MCU — Motor | STM32 NUCLEO-F446RE (MotorECU, Phase 6) |
+| CAN 인터페이스 (RPi5) | MCP2515 + TJA1050 (SPI→CAN) |
+| CAN 트랜시버 (F446RE) | MCP2551 (bxCAN) |
+| 장애물 센서 | HC-SR04P 초음파 센서 |
+| 섀시 | 5KG Ackermann 프레임 (인코더 모터 내장) |
+| 모터 드라이버 | Waveshare I2C Motor Driver HAT / L298N |
+| 배터리 | LiPo 7.4V 2S (B2200N-SP35) + UBEC 5A 레귤레이터 |
+
+---
+
 ## 시작하기
 
 ### 사전 준비
