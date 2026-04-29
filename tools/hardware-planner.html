@@ -342,20 +342,20 @@ const DEFS = {
   },
 
   mcp2515: {
-    name: 'MCP2515 (CAN Controller)',
-    short: 'MCP2515',
+    name: 'MCP2515 + TJA1050 모듈',
+    short: 'MCP2515+TJA1050',
     color: '#7b3fb5',
     group: 'comm',
     pins: [
-      { id:'vcc',  name:'VCC',       side:'left',  type:'power'  },
-      { id:'gnd',  name:'GND',       side:'left',  type:'ground' },
-      { id:'int',  name:'INT',       side:'left',  type:'gpio'   },
-      { id:'sck',  name:'SCK',       side:'right', type:'spi'    },
-      { id:'si',   name:'SI (MOSI)', side:'right', type:'spi'    },
-      { id:'so',   name:'SO (MISO)', side:'right', type:'spi'    },
-      { id:'cs',   name:'CS',        side:'right', type:'spi'    },
-      { id:'canh', name:'CANH',      side:'right', type:'can'    },
-      { id:'canl', name:'CANL',      side:'right', type:'can'    },
+      { id:'vcc',  name:'VCC',        side:'left',  type:'power'  },
+      { id:'gnd',  name:'GND',        side:'left',  type:'ground' },
+      { id:'int',  name:'INT',        side:'left',  type:'gpio'   },
+      { id:'sck',  name:'SCK',        side:'right', type:'spi'    },
+      { id:'si',   name:'SI (MOSI)',  side:'right', type:'spi'    },
+      { id:'so',   name:'SO (MISO)',  side:'right', type:'spi'    },
+      { id:'cs',   name:'CS',         side:'right', type:'spi'    },
+      { id:'canh', name:'CANH →bus',  side:'right', type:'can'    },
+      { id:'canl', name:'CANL →bus',  side:'right', type:'can'    },
     ]
   },
 
@@ -365,13 +365,24 @@ const DEFS = {
     color: '#b05c10',
     group: 'comm',
     pins: [
-      { id:'txd',  name:'TXD',  side:'left',  type:'can'    },
-      { id:'gnd',  name:'GND',  side:'left',  type:'ground' },
-      { id:'vcc',  name:'VCC',  side:'left',  type:'power'  },
-      { id:'rs',   name:'Rs',   side:'left',  type:'gpio'   },
-      { id:'rxd',  name:'RXD',  side:'right', type:'can'    },
-      { id:'canh', name:'CANH', side:'right', type:'can'    },
-      { id:'canl', name:'CANL', side:'right', type:'can'    },
+      { id:'txd',  name:'TXD ←MCU', side:'left',  type:'can'    },
+      { id:'gnd',  name:'GND',      side:'left',  type:'ground' },
+      { id:'vcc',  name:'VCC',      side:'left',  type:'power'  },
+      { id:'rs',   name:'Rs (GND)', side:'left',  type:'gpio'   },
+      { id:'rxd',  name:'RXD →MCU', side:'right', type:'can'    },
+      { id:'canh', name:'CANH →bus',side:'right', type:'can'    },
+      { id:'canl', name:'CANL →bus',side:'right', type:'can'    },
+    ]
+  },
+
+  res120: {
+    name: '120Ω 종단 저항',
+    short: '120Ω Term.',
+    color: '#7a4500',
+    group: 'comm',
+    pins: [
+      { id:'canh', name:'CANH', side:'left',  type:'can' },
+      { id:'canl', name:'CANL', side:'right', type:'can' },
     ]
   },
 
@@ -407,24 +418,6 @@ const DEFS = {
       { id:'out2', name:'OUT2',     side:'right', type:'gpio'   },
       { id:'out3', name:'OUT3',     side:'right', type:'gpio'   },
       { id:'out4', name:'OUT4',     side:'right', type:'gpio'   },
-    ]
-  },
-
-  ws_hat: {
-    name: 'Waveshare Motor HAT',
-    short: 'WS Motor HAT',
-    color: '#2d3748',
-    group: 'drive',
-    pins: [
-      { id:'sda',  name:'SDA (I2C)',  side:'left',  type:'i2c'    },
-      { id:'scl',  name:'SCL (I2C)',  side:'left',  type:'i2c'    },
-      { id:'5v',   name:'5V',         side:'left',  type:'power'  },
-      { id:'gnd',  name:'GND',        side:'left',  type:'ground' },
-      { id:'vm',   name:'VM (배터리)', side:'right', type:'power'  },
-      { id:'ma1',  name:'MA+',        side:'right', type:'gpio'   },
-      { id:'ma2',  name:'MA-',        side:'right', type:'gpio'   },
-      { id:'mb1',  name:'MB+',        side:'right', type:'gpio'   },
-      { id:'mb2',  name:'MB-',        side:'right', type:'gpio'   },
     ]
   },
 
