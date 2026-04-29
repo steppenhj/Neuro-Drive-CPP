@@ -233,7 +233,7 @@ svg#canvas { width: 100%; height: 100%; display: block; }
       <g id="bg-layer"></g>
       <g id="wires-layer"></g>
       <g id="comps-layer"></g>
-      <g id="temp-layer"></g>
+      <g id="temp-layer" style="pointer-events:none"></g>
     </svg>
 
     <div id="empty">
@@ -610,12 +610,20 @@ function buildComp(inst) {
       stroke: color, 'stroke-width': '2',
     }));
 
-    // pin circle
+    // pin circle (visible)
     pg.appendChild(el('circle', {
       cx: tipX, cy, r: PIN_R,
       fill: active ? '#fff' : color,
       stroke: active ? color : '#1c2130',
       'stroke-width': active ? 2 : 1,
+      style: 'pointer-events:none',
+    }));
+
+    // pin hit area (invisible, larger for easier clicking)
+    pg.appendChild(el('circle', {
+      cx: tipX, cy, r: PIN_R + 8,
+      fill: 'transparent', stroke: 'none',
+      style: 'cursor:crosshair',
     }));
 
     // label inside component
@@ -945,7 +953,7 @@ canvasWrap.addEventListener('mousedown', e => {
     const pt   = svgCoord(e.clientX, e.clientY);
     S.drag = { iid, ox: pt.x - inst.x, oy: pt.y - inst.y };
     S.sel  = { kind: 'comp', id: iid };
-    S.conn = null;
+    // S.conn은 유지 — 연결 중에 부품 드래그해도 취소 안 됨
     render(); return;
   }
 
