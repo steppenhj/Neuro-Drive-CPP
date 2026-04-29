@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neuro-Drive — Hardware Planner</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: #0d1117;
+  color: #e6edf3;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── Toolbar ── */
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+#toolbar .title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #e94560;
+  letter-spacing: 0.5px;
+  margin-right: 6px;
+}
+
+.btn {
+  padding: 5px 11px;
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  border-radius: 5px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+.btn:hover { background: #30363d; border-color: #58a6ff; color: #e6edf3; }
+.btn.danger { border-color: #f85149; color: #f85149; }
+.btn.danger:hover { background: #f8514922; }
+
+.sep { width: 1px; height: 18px; background: #30363d; margin: 0 2px; }
+
+#status {
+  margin-left: auto;
+  font-size: 11px;
+  color: #6e7681;
+  max-width: 380px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#hint {
+  font-size: 10px;
+  color: #444c56;
+  margin-left: 10px;
+}
+
+/* ── App layout ── */
+#app { display: flex; flex: 1; overflow: hidden; }
+
+/* ── Sidebar ── */
+#sidebar {
+  width: 185px;
+  flex-shrink: 0;
+  background: #161b22;
+  border-right: 1px solid #30363d;
+  overflow-y: auto;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#sidebar .section-title {
+  font-size: 10px;
+  color: #6e7681;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 4px 4px 6px;
+  margin-top: 4px;
+}
+#sidebar .section-title:first-child { margin-top: 0; }
+
+.comp-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.comp-btn:hover { background: #2d333b; border-color: #58a6ff; }
+.comp-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.comp-btn span { font-size: 11px; color: #c9d1d9; font-weight: 500; }
+
+/* ── Canvas ── */
+#canvas-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #0d1117;
+  background-image:
+    linear-gradient(rgba(48,54,61,0.25) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(48,54,61,0.25) 1px, transparent 1px);
+  background-size: 28px 28px;
+  cursor: default;
+}
+
+svg#canvas { width: 100%; height: 100%; display: block; }
+
+/* ── Legend ── */
+#legend {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  background: rgba(22, 27, 34, 0.93);
+  border: 1px solid #30363d;
+  border-radius: 7px;
+  padding: 10px 13px;
+  font-size: 10px;
+  backdrop-filter: blur(4px);
+}
+#legend .leg-title {
+  color: #6e7681;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 7px;
+  font-weight: 600;
+}
+.leg-row { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+.leg-line { width: 22px; height: 3px; border-radius: 2px; }
+.leg-label { color: #8b949e; }
+
+/* ── Zoom controls ── */
+#zoom-controls {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.zoom-btn {
+  width: 28px; height: 28px;
+  background: rgba(22, 27, 34, 0.93);
+  border: 1px solid #30363d;
+  border-radius: 5px;
+  color: #c9d1d9;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.12s;
+}
+.zoom-btn:hover { background: #2d333b; }
+
+/* ── Tooltip ── */
+#tooltip {
+  position: fixed;
+  background: rgba(0,0,0,0.88);
+  color: #c9d1d9;
+  padding: 4px 9px;
+  border-radius: 4px;
+  font-size: 11px;
+  pointer-events: none;
+  display: none;
+  z-index: 999;
+  border: 1px solid #30363d;
+}
+
+/* ── Empty state ── */
+#empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: #30363d;
+  pointer-events: none;
+}
+#empty .empty-icon { font-size: 56px; margin-bottom: 12px; opacity: 0.5; }
+#empty p { font-size: 13px; line-height: 1.7; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <span class="title">⚡ HW Planner</span>
+  <button class="btn" onclick="saveJSON()">💾 저장</button>
+  <button class="btn" onclick="loadJSON()">📂 불러오기</button>
+  <div class="sep"></div>
+  <button class="btn" onclick="exportSVG()">🖼 SVG 내보내기</button>
+  <button class="btn" onclick="zoomFit()">🔍 전체보기</button>
+  <div class="sep"></div>
+  <button class="btn danger" onclick="clearAll()">🗑 초기화</button>
+  <span id="status">사이드바에서 부품을 클릭해 캔버스에 추가하세요</span>
+  <span id="hint">핀 클릭 → 연결 시작 | Delete: 삭제 | Esc: 취소 | 스크롤: 줌</span>
+</div>
+
+<div id="app">
+  <div id="sidebar">
+    <div class="section-title">처리장치</div>
+    <!-- filled by JS -->
+    <div class="section-title">통신 / 센서</div>
+    <div class="section-title">구동계</div>
+  </div>
+
+  <div id="canvas-wrap">
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="2" dy="3" stdDeviation="3" flood-color="#000" flood-opacity="0.5"/>
+        </filter>
+      </defs>
+      <g id="bg-layer"></g>
+      <g id="wires-layer"></g>
+      <g id="comps-layer"></g>
+      <g id="temp-layer"></g>
+    </svg>
+
+    <div id="empty">
+      <div class="empty-icon">🔌</div>
+      <p>사이드바에서 부품을 클릭해 추가하세요<br>핀(작은 원)을 클릭해 배선을 연결합니다</p>
+    </div>
+
+    <div id="legend">
+      <div class="leg-title">프로토콜</div>
+    </div>
+
+    <div id="zoom-controls">
+      <button class="zoom-btn" onclick="adjustZoom(1.2)">+</button>
+      <button class="zoom-btn" onclick="adjustZoom(0.85)">−</button>
+    </div>
+
+    <div id="tooltip"></div>
+  </div>
+</div>
+
+<input type="file" id="file-input" accept=".json" style="display:none">
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  PIN PROTOCOL COLORS
+// ═══════════════════════════════════════════════════════════════
+const PC = {
+  power:  '#e74c3c',
+  ground: '#636e72',
+  uart:   '#0984e3',
+  spi:    '#e17055',
+  i2c:    '#a29bfe',
+  can:    '#00b894',
+  pwm:    '#fdcb6e',
+  gpio:   '#8d9db6',
+  enc:    '#55efc4',
+  analog: '#fd79a8',
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  COMPONENT DEFINITIONS
+// ═══════════════════════════════════════════════════════════════
+// pin: { id, name, side: 'left'|'right', type }
+const DEFS = {
+  rpi5: {
+    name: 'Raspberry Pi 5',
+    short: 'RPi 5 (4GB)',
+    color: '#b03030',
+    group: 'mpu',
+    pins: [
+      { id:'5v',     name:'5V',            side:'left',  type:'power'  },
+      { id:'3v3',    name:'3.3V',          side:'left',  type:'power'  },
+      { id:'gnd',    name:'GND',           side:'left',  type:'ground' },
+      { id:'sda1',   name:'SDA1 (GPIO2)',  side:'left',  type:'i2c'    },
+      { id:'scl1',   name:'SCL1 (GPIO3)',  side:'left',  type:'i2c'    },
+      { id:'tx0',    name:'TX (GPIO14)',   side:'right', type:'uart'   },
+      { id:'rx0',    name:'RX (GPIO15)',   side:'right', type:'uart'   },
+      { id:'mosi0',  name:'MOSI (GPIO10)', side:'right', type:'spi'    },
+      { id:'miso0',  name:'MISO (GPIO9)',  side:'right', type:'spi'    },
+      { id:'sclk0',  name:'SCLK (GPIO11)', side:'right', type:'spi'    },
+      { id:'ce0',    name:'CE0 (GPIO8)',   side:'right', type:'spi'    },
+      { id:'ce1',    name:'CE1 (GPIO7)',   side:'right', type:'spi'    },
+    ]
+  },
+
+  f411re: {
+    name: 'STM32 NUCLEO-F411RE',
+    short: 'F411RE (SensorECU)',
+    color: '#1a6fad',
+    group: 'mpu',
+    pins: [
+      { id:'5v',     name:'5V',             side:'left',  type:'power'  },
+      { id:'3v3',    name:'3.3V',           side:'left',  type:'power'  },
+      { id:'gnd',    name:'GND',            side:'left',  type:'ground' },
+      { id:'tx2',    name:'TX PA2',         side:'left',  type:'uart'   },
+      { id:'rx2',    name:'RX PA3',         side:'left',  type:'uart'   },
+      { id:'mosi1',  name:'MOSI PA7',       side:'right', type:'spi'    },
+      { id:'miso1',  name:'MISO PA6',       side:'right', type:'spi'    },
+      { id:'sck1',   name:'SCK  PA5',       side:'right', type:'spi'    },
+      { id:'cs1',    name:'CS   PA4',       side:'right', type:'spi'    },
+      { id:'pwm_a8', name:'PWM  PA8',       side:'right', type:'pwm'    },
+      { id:'pwm_a9', name:'PWM  PA9',       side:'right', type:'pwm'    },
+      { id:'enc_a',  name:'ENC_A PA0',      side:'right', type:'enc'    },
+      { id:'enc_b',  name:'ENC_B PA1',      side:'right', type:'enc'    },
+    ]
+  },
+
+  f446re: {
+    name: 'STM32 NUCLEO-F446RE',
+    short: 'F446RE (MotorECU)',
+    color: '#217a45',
+    group: 'mpu',
+    pins: [
+      { id:'5v',     name:'5V',             side:'left',  type:'power'  },
+      { id:'3v3',    name:'3.3V',           side:'left',  type:'power'  },
+      { id:'gnd',    name:'GND',            side:'left',  type:'ground' },
+      { id:'can_tx', name:'CAN1 TX PB9',    side:'left',  type:'can'    },
+      { id:'can_rx', name:'CAN1 RX PB8',    side:'left',  type:'can'    },
+      { id:'tx2',    name:'TX   PA2',       side:'right', type:'uart'   },
+      { id:'rx2',    name:'RX   PA3',       side:'right', type:'uart'   },
+      { id:'pwm_b6', name:'PWM  PB6',       side:'right', type:'pwm'    },
+      { id:'pwm_b7', name:'PWM  PB7',       side:'right', type:'pwm'    },
+      { id:'pwm_a8', name:'PWM  PA8',       side:'right', type:'pwm'    },
+      { id:'pwm_a9', name:'PWM  PA9',       side:'right', type:'pwm'    },
+    ]
+  },
+
+  mcp2515: {
+    name: 'MCP2515 (CAN Controller)',
+    short: 'MCP2515',
+    color: '#7b3fb5',
+    group: 'comm',
+    pins: [
+      { id:'vcc',  name:'VCC',       side:'left',  type:'power'  },
+      { id:'gnd',  name:'GND',       side:'left',  type:'ground' },
+      { id:'int',  name:'INT',       side:'left',  type:'gpio'   },
+      { id:'sck',  name:'SCK',       side:'right', type:'spi'    },
+      { id:'si',   name:'SI (MOSI)', side:'right', type:'spi'    },
+      { id:'so',   name:'SO (MISO)', side:'right', type:'spi'    },
+      { id:'cs',   name:'CS',        side:'right', type:'spi'    },
+      { id:'canh', name:'CANH',      side:'right', type:'can'    },
+      { id:'canl', name:'CANL',      side:'right', type:'can'    },
+    ]
+  },
+
+  mcp2551: {
+    name: 'MCP2551 (CAN Transceiver)',
+    short: 'MCP2551',
+    color: '#b05c10',
+    group: 'comm',
+    pins: [
+      { id:'txd',  name:'TXD',  side:'left',  type:'can'    },
+      { id:'gnd',  name:'GND',  side:'left',  type:'ground' },
+      { id:'vcc',  name:'VCC',  side:'left',  type:'power'  },
+      { id:'rs',   name:'Rs',   side:'left',  type:'gpio'   },
+      { id:'rxd',  name:'RXD',  side:'right', type:'can'    },
+      { id:'canh', name:'CANH', side:'right', type:'can'    },
+      { id:'canl', name:'CANL', side:'right', type:'can'    },
+    ]
+  },
+
+  hcsr04p: {
+    name: 'HC-SR04P (초음파 센서)',
+    short: 'HC-SR04P',
+    color: '#0e7a6a',
+    group: 'comm',
+    pins: [
+      { id:'vcc',  name:'VCC',  side:'left',  type:'power'  },
+      { id:'trig', name:'TRIG', side:'left',  type:'gpio'   },
+      { id:'echo', name:'ECHO', side:'right', type:'gpio'   },
+      { id:'gnd',  name:'GND',  side:'right', type:'ground' },
+    ]
+  },
+
+  l298n: {
+    name: 'L298N (모터 드라이버)',
+    short: 'L298N',
+    color: '#4a5568',
+    group: 'drive',
+    pins: [
+      { id:'12v',  name:'12V (VM)',  side:'left',  type:'power'  },
+      { id:'gnd',  name:'GND',      side:'left',  type:'ground' },
+      { id:'5vout',name:'5V OUT',   side:'left',  type:'power'  },
+      { id:'ena',  name:'ENA',      side:'left',  type:'pwm'    },
+      { id:'in1',  name:'IN1',      side:'left',  type:'gpio'   },
+      { id:'in2',  name:'IN2',      side:'left',  type:'gpio'   },
+      { id:'in3',  name:'IN3',      side:'left',  type:'gpio'   },
+      { id:'in4',  name:'IN4',      side:'left',  type:'gpio'   },
+      { id:'enb',  name:'ENB',      side:'left',  type:'pwm'    },
+      { id:'out1', name:'OUT1',     side:'right', type:'gpio'   },
+      { id:'out2', name:'OUT2',     side:'right', type:'gpio'   },
+      { id:'out3', name:'OUT3',     side:'right', type:'gpio'   },
+      { id:'out4', name:'OUT4',     side:'right', type:'gpio'   },
+    ]
+  },
+
+  ws_hat: {
+    name: 'Waveshare Motor HAT',
+    short: 'WS Motor HAT',
+    color: '#2d3748',
+    group: 'drive',
+    pins: [
+      { id:'sda',  name:'SDA (I2C)',  side:'left',  type:'i2c'    },
+      { id:'scl',  name:'SCL (I2C)',  side:'left',  type:'i2c'    },
+      { id:'5v',   name:'5V',         side:'left',  type:'power'  },
+      { id:'gnd',  name:'GND',        side:'left',  type:'ground' },
+      { id:'vm',   name:'VM (배터리)', side:'right', type:'power'  },
+      { id:'ma1',  name:'MA+',        side:'right', type:'gpio'   },
+      { id:'ma2',  name:'MA-',        side:'right', type:'gpio'   },
+      { id:'mb1',  name:'MB+',        side:'right', type:'gpio'   },
+      { id:'mb2',  name:'MB-',        side:'right', type:'gpio'   },
+    ]
+  },
+
+  ubec: {
+    name: 'UBEC 5A 레귤레이터',
+    short: 'UBEC 5A',
+    color: '#5c4a00',
+    group: 'drive',
+    pins: [
+      { id:'vin',  name:'IN+ (7~30V)', side:'left',  type:'power'  },
+      { id:'gnd1', name:'IN-  GND',    side:'left',  type:'ground' },
+      { id:'vout', name:'OUT 5V',      side:'right', type:'power'  },
+      { id:'gnd2', name:'OUT GND',     side:'right', type:'ground' },
+    ]
+  },
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  LAYOUT CONSTANTS
+// ═══════════════════════════════════════════════════════════════
+const W        = 224;   // component width
+const HDR_H    = 28;    // header height
+const PIN_SP   = 25;    // pin vertical spacing
+const PAD_TOP  = 14;    // padding above first pin
+const PIN_R    = 6;     // pin circle radius
+const PIN_EXT  = 14;    // pin stub extension outside component
+
+// ═══════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════
+const S = {
+  comps: [],       // { iid, type, x, y }
+  wires: [],       // { wid, fromIid, fromPin, toIid, toPin }
+  sel: null,       // { kind:'comp'|'wire', id }
+  conn: null,      // { iid, pinId, wx, wy, side, type } – wire in progress
+  drag: null,      // { iid, ox, oy }
+  pan:  { x: 80, y: 80 },
+  panStart: null,
+  zoom: 1.0,
+  uid: 1,
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════════════════
+const $ = id => document.getElementById(id);
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function el(tag, attrs = {}) {
+  const e = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  return e;
+}
+
+function txt(tag, attrs, text) {
+  const e = el(tag, attrs);
+  e.textContent = text;
+  return e;
+}
+
+function def(type) { return DEFS[type]; }
+
+function compH(d) {
+  const lc = d.pins.filter(p => p.side === 'left').length;
+  const rc = d.pins.filter(p => p.side === 'right').length;
+  return HDR_H + PAD_TOP + Math.max(lc, rc) * PIN_SP + PAD_TOP;
+}
+
+function pinAbsPos(inst, pinId) {
+  const d = def(inst.type);
+  const pin = d.pins.find(p => p.id === pinId);
+  if (!pin) return null;
+  const list = d.pins.filter(p => p.side === pin.side);
+  const idx  = list.findIndex(p => p.id === pinId);
+  const cx   = pin.side === 'left'
+    ? inst.x - PIN_EXT
+    : inst.x + W + PIN_EXT;
+  const cy   = inst.y + HDR_H + PAD_TOP + idx * PIN_SP + PIN_SP / 2;
+  return { x: cx, y: cy, side: pin.side, type: pin.type };
+}
+
+function svgCoord(clientX, clientY) {
+  const rect = $('canvas').getBoundingClientRect();
+  return {
+    x: (clientX - rect.left - S.pan.x) / S.zoom,
+    y: (clientY - rect.top  - S.pan.y) / S.zoom,
+  };
+}
+
+function setTransform() {
+  const t = `translate(${S.pan.x},${S.pan.y}) scale(${S.zoom})`;
+  $('wires-layer').setAttribute('transform', t);
+  $('comps-layer').setAttribute('transform', t);
+  $('temp-layer').setAttribute('transform', t);
+}
+
+function setStatus(msg) { $('status').textContent = msg; }
+
+// ═══════════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════════
+function render() {
+  renderWires();
+  renderComps();
+  $('empty').style.display = S.comps.length ? 'none' : 'block';
+}
+
+function renderComps() {
+  const layer = $('comps-layer');
+  layer.innerHTML = '';
+  S.comps.forEach(inst => layer.appendChild(buildComp(inst)));
+}
+
+function buildComp(inst) {
+  const d   = def(inst.type);
+  const h   = compH(d);
+  const sel = S.sel?.kind === 'comp' && S.sel?.id === inst.iid;
+  const g   = el('g', { 'data-iid': inst.iid, style: 'cursor:move' });
+
+  // drop shadow rect
+  g.appendChild(el('rect', {
+    x: inst.x + 3, y: inst.y + 4, width: W, height: h, rx: 7,
+    fill: 'rgba(0,0,0,0.45)',
+  }));
+
+  // body
+  g.appendChild(el('rect', {
+    x: inst.x, y: inst.y, width: W, height: h, rx: 7,
+    fill: '#1c2130',
+    stroke: sel ? '#58a6ff' : '#30363d',
+    'stroke-width': sel ? 2 : 1,
+  }));
+
+  // header fill
+  g.appendChild(el('rect', {
+    x: inst.x, y: inst.y, width: W, height: HDR_H, rx: 7,
+    fill: d.color,
+  }));
+  // header bottom square-off
+  g.appendChild(el('rect', {
+    x: inst.x, y: inst.y + HDR_H - 7, width: W, height: 7,
+    fill: d.color,
+  }));
+  // header title
+  g.appendChild(txt('text', {
+    x: inst.x + W / 2, y: inst.y + HDR_H - 9,
+    'text-anchor': 'middle',
+    fill: '#fff', 'font-size': '11.5', 'font-weight': '700',
+    'font-family': 'Segoe UI, system-ui',
+    style: 'pointer-events:none',
+  }, d.short));
+
+  // × delete button
+  const delG = el('g', { 'data-del': inst.iid, style: 'cursor:pointer' });
+  delG.appendChild(el('circle', {
+    cx: inst.x + W - 11, cy: inst.y + 11, r: 8,
+    fill: '#e74c3c', opacity: '0.85',
+  }));
+  delG.appendChild(txt('text', {
+    x: inst.x + W - 11, y: inst.y + 15,
+    'text-anchor': 'middle', fill: '#fff',
+    'font-size': '12', 'font-weight': '700',
+    style: 'pointer-events:none',
+  }, '×'));
+  g.appendChild(delG);
+
+  // pins
+  const leftPins  = d.pins.filter(p => p.side === 'left');
+  const rightPins = d.pins.filter(p => p.side === 'right');
+
+  function addPin(pin, idx, side) {
+    const edgeX = side === 'left' ? inst.x : inst.x + W;
+    const cy    = inst.y + HDR_H + PAD_TOP + idx * PIN_SP + PIN_SP / 2;
+    const tipX  = side === 'left' ? edgeX - PIN_EXT : edgeX + PIN_EXT;
+    const color = PC[pin.type] || '#8d9db6';
+    const active = S.conn?.iid === inst.iid && S.conn?.pinId === pin.id;
+
+    const pg = el('g', { 'data-pin': pin.id, 'data-iid': inst.iid, style: 'cursor:crosshair' });
+
+    // stub line
+    pg.appendChild(el('line', {
+      x1: edgeX, y1: cy, x2: tipX, y2: cy,
+      stroke: color, 'stroke-width': '2',
+    }));
+
+    // pin circle
+    pg.appendChild(el('circle', {
+      cx: tipX, cy, r: PIN_R,
+      fill: active ? '#fff' : color,
+      stroke: active ? color : '#1c2130',
+      'stroke-width': active ? 2 : 1,
+    }));
+
+    // label inside component
+    const lx = side === 'left' ? edgeX + 8 : edgeX - 8;
+    pg.appendChild(txt('text', {
+      x: lx, y: cy + 4,
+      'text-anchor': side === 'left' ? 'start' : 'end',
+      fill: '#8b949e', 'font-size': '9.5',
+      'font-family': 'Consolas, monospace',
+      style: 'pointer-events:none',
+    }, pin.name));
+
+    g.appendChild(pg);
+  }
+
+  leftPins.forEach((p, i)  => addPin(p, i, 'left'));
+  rightPins.forEach((p, i) => addPin(p, i, 'right'));
+
+  return g;
+}
+
+function renderWires() {
+  const layer = $('wires-layer');
+  layer.innerHTML = '';
+  S.wires.forEach(wire => {
+    const fi = S.comps.find(c => c.iid === wire.fromIid);
+    const ti = S.comps.find(c => c.iid === wire.toIid);
+    if (!fi || !ti) return;
+    const fp = pinAbsPos(fi, wire.fromPin);
+    const tp = pinAbsPos(ti, wire.toPin);
+    if (!fp || !tp) return;
+
+    const color = PC[fp.type] || '#8d9db6';
+    const sel   = S.sel?.kind === 'wire' && S.sel?.id === wire.wid;
+    const path  = bezierPath(fp, tp);
+
+    // hit zone
+    const hit = el('path', {
+      d: path, fill: 'none', stroke: 'transparent', 'stroke-width': '14',
+      'data-wire': wire.wid, style: 'cursor:pointer',
+    });
+    layer.appendChild(hit);
+
+    // visible wire
+    layer.appendChild(el('path', {
+      d: path, fill: 'none',
+      stroke: sel ? '#e6edf3' : color,
+      'stroke-width': sel ? '3' : '2',
+      'stroke-dasharray': sel ? '7,4' : 'none',
+      opacity: '0.88',
+      style: 'pointer-events:none',
+    }));
+
+    // midpoint label
+    const mx = (fp.x + tp.x) / 2;
+    const my = (fp.y + tp.y) / 2;
+    const label = fp.type.toUpperCase();
+    const lw = label.length * 6.5 + 8;
+    layer.appendChild(el('rect', {
+      x: mx - lw/2, y: my - 8, width: lw, height: 13, rx: 3,
+      fill: 'rgba(13,17,23,0.82)',
+      style: 'pointer-events:none',
+    }));
+    layer.appendChild(txt('text', {
+      x: mx, y: my + 2,
+      'text-anchor': 'middle',
+      fill: color, 'font-size': '8.5', 'font-weight': '700',
+      'font-family': 'Consolas, monospace',
+      style: 'pointer-events:none',
+    }, label));
+  });
+}
+
+function bezierPath(fp, tp) {
+  const dx   = Math.abs(tp.x - fp.x) * 0.55 + 50;
+  const cp1x = fp.side === 'right' ? fp.x + dx : fp.x - dx;
+  const cp2x = tp.side === 'right' ? tp.x + dx : tp.x - dx;
+  return `M ${fp.x} ${fp.y} C ${cp1x} ${fp.y} ${cp2x} ${tp.y} ${tp.x} ${tp.y}`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SIDEBAR BUILD
+// ═══════════════════════════════════════════════════════════════
+function buildSidebar() {
+  const sidebar = $('sidebar');
+  sidebar.innerHTML = '';
+
+  const groups = [
+    { key: 'mpu',  label: '처리장치 (MCU/MPU)' },
+    { key: 'comm', label: '통신 / 센서' },
+    { key: 'drive',label: '구동 / 전원' },
+  ];
+
+  groups.forEach(({ key, label }) => {
+    const sec = document.createElement('div');
+    sec.className = 'section-title';
+    sec.textContent = label;
+    sidebar.appendChild(sec);
+
+    Object.entries(DEFS)
+      .filter(([, d]) => d.group === key)
+      .forEach(([type, d]) => {
+        const btn = document.createElement('div');
+        btn.className = 'comp-btn';
+        btn.innerHTML = `
+          <div class="comp-dot" style="background:${d.color}"></div>
+          <span>${d.short}</span>
+        `;
+        btn.addEventListener('click', () => addComp(type));
+        sidebar.appendChild(btn);
+      });
+  });
+}
+
+function buildLegend() {
+  const leg = $('legend');
+  for (const [type, color] of Object.entries(PC)) {
+    const row = document.createElement('div');
+    row.className = 'leg-row';
+    row.innerHTML = `
+      <div class="leg-line" style="background:${color}"></div>
+      <span class="leg-label">${type}</span>
+    `;
+    leg.appendChild(row);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  ACTIONS
+// ═══════════════════════════════════════════════════════════════
+function addComp(type) {
+  const cx = (($('canvas-wrap').clientWidth  / 2) - S.pan.x) / S.zoom - W / 2;
+  const cy = (($('canvas-wrap').clientHeight / 2) - S.pan.y) / S.zoom - 60;
+  const off = S.comps.length * 22;
+  S.comps.push({ iid: `i${S.uid++}`, type, x: cx + off, y: cy + off });
+  setStatus(`${DEFS[type].name} 추가됨`);
+  render();
+}
+
+function deleteSelected() {
+  if (!S.sel) return;
+  if (S.sel.kind === 'comp') {
+    S.comps = S.comps.filter(c => c.iid !== S.sel.id);
+    S.wires = S.wires.filter(w => w.fromIid !== S.sel.id && w.toIid !== S.sel.id);
+    setStatus('부품 삭제됨');
+  } else {
+    S.wires = S.wires.filter(w => w.wid !== S.sel.id);
+    setStatus('배선 삭제됨');
+  }
+  S.sel = null;
+  render();
+}
+
+function clearAll() {
+  if (!confirm('모든 부품과 배선을 초기화하시겠습니까?')) return;
+  Object.assign(S, { comps: [], wires: [], sel: null, conn: null });
+  $('temp-layer').innerHTML = '';
+  render();
+  setStatus('초기화 완료');
+}
+
+function saveJSON() {
+  const blob = new Blob(
+    [JSON.stringify({ comps: S.comps, wires: S.wires, uid: S.uid, pan: S.pan, zoom: S.zoom }, null, 2)],
+    { type: 'application/json' }
+  );
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'neuro-drive-hw-layout.json';
+  a.click();
+  setStatus('레이아웃 저장 완료');
+}
+
+function loadJSON() { $('file-input').click(); }
+
+$('file-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const d = JSON.parse(ev.target.result);
+      S.comps = d.comps || [];
+      S.wires = d.wires || [];
+      S.uid   = d.uid   || 1;
+      if (d.pan)  S.pan  = d.pan;
+      if (d.zoom) S.zoom = d.zoom;
+      S.sel = null; S.conn = null;
+      setTransform();
+      render();
+      setStatus(`불러오기 완료 — 부품 ${S.comps.length}개, 배선 ${S.wires.length}개`);
+    } catch { alert('JSON 파일을 읽을 수 없습니다.'); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+function exportSVG() {
+  const svg  = $('canvas');
+  // add background for standalone SVG
+  const bgEl = document.createElementNS(SVG_NS, 'rect');
+  bgEl.setAttribute('width', '100%'); bgEl.setAttribute('height', '100%');
+  bgEl.setAttribute('fill', '#0d1117');
+  svg.insertBefore(bgEl, svg.firstChild);
+  const data = new XMLSerializer().serializeToString(svg);
+  svg.removeChild(bgEl);
+  const blob = new Blob([data], { type: 'image/svg+xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'neuro-drive-hw-layout.svg';
+  a.click();
+  setStatus('SVG 내보내기 완료');
+}
+
+function adjustZoom(factor) {
+  const cx = $('canvas-wrap').clientWidth  / 2;
+  const cy = $('canvas-wrap').clientHeight / 2;
+  const wx = (cx - S.pan.x) / S.zoom;
+  const wy = (cy - S.pan.y) / S.zoom;
+  S.zoom = Math.min(3, Math.max(0.15, S.zoom * factor));
+  S.pan.x = cx - wx * S.zoom;
+  S.pan.y = cy - wy * S.zoom;
+  setTransform();
+}
+
+function zoomFit() {
+  if (!S.comps.length) { S.pan = { x: 80, y: 80 }; S.zoom = 1; setTransform(); return; }
+  const xs = S.comps.map(c => c.x);
+  const ys = S.comps.map(c => c.y);
+  const d  = S.comps.map(c => def(c.type));
+  const xmax = Math.max(...S.comps.map((c, i) => c.x + W));
+  const ymax = Math.max(...S.comps.map((c, i) => c.y + compH(def(c.type))));
+  const xmin = Math.min(...xs);
+  const ymin = Math.min(...ys);
+  const cw = $('canvas-wrap').clientWidth;
+  const ch = $('canvas-wrap').clientHeight;
+  const margin = 60;
+  S.zoom = Math.min(3, Math.max(0.15,
+    Math.min((cw - margin*2) / (xmax - xmin + 1),
+             (ch - margin*2) / (ymax - ymin + 1))
+  ));
+  S.pan.x = margin - xmin * S.zoom;
+  S.pan.y = margin - ymin * S.zoom;
+  setTransform();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  PIN CONNECTION
+// ═══════════════════════════════════════════════════════════════
+function handlePinClick(iid, pinId) {
+  if (!S.conn) {
+    const inst = S.comps.find(c => c.iid === iid);
+    if (!inst) return;
+    const pos = pinAbsPos(inst, pinId);
+    if (!pos) return;
+    S.conn = { iid, pinId, wx: pos.x, wy: pos.y, side: pos.side, type: pos.type };
+    setStatus('연결 중… 다른 핀을 클릭하세요   |   Esc: 취소');
+    render();
+    return;
+  }
+
+  // same pin → cancel
+  if (S.conn.iid === iid && S.conn.pinId === pinId) {
+    S.conn = null; $('temp-layer').innerHTML = '';
+    setStatus('취소됨'); render(); return;
+  }
+
+  // duplicate check
+  const dup = S.wires.find(w =>
+    (w.fromIid === S.conn.iid && w.fromPin === S.conn.pinId && w.toIid === iid && w.toPin === pinId) ||
+    (w.fromIid === iid && w.fromPin === pinId && w.toIid === S.conn.iid && w.toPin === S.conn.pinId)
+  );
+  if (dup) { setStatus('이미 연결된 핀입니다'); S.conn = null; $('temp-layer').innerHTML = ''; render(); return; }
+
+  // create wire
+  S.wires.push({ wid: `w${S.uid++}`, fromIid: S.conn.iid, fromPin: S.conn.pinId, toIid: iid, toPin: pinId });
+
+  const fi  = S.comps.find(c => c.iid === S.conn.iid);
+  const ti  = S.comps.find(c => c.iid === iid);
+  const fpn = def(fi.type).pins.find(p => p.id === S.conn.pinId)?.name;
+  const tpn = def(ti.type).pins.find(p => p.id === pinId)?.name;
+  setStatus(`연결: ${def(fi.type).short} / ${fpn}  →  ${def(ti.type).short} / ${tpn}`);
+
+  S.conn = null; $('temp-layer').innerHTML = '';
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CANVAS EVENTS
+// ═══════════════════════════════════════════════════════════════
+const canvasWrap = $('canvas-wrap');
+
+canvasWrap.addEventListener('mousedown', e => {
+  // ① delete button
+  const delId = e.target.closest('[data-del]')?.getAttribute('data-del');
+  if (delId) {
+    e.stopPropagation();
+    S.comps = S.comps.filter(c => c.iid !== delId);
+    S.wires = S.wires.filter(w => w.fromIid !== delId && w.toIid !== delId);
+    if (S.sel?.id === delId) S.sel = null;
+    render(); return;
+  }
+
+  // ② pin
+  const pinEl = e.target.closest('[data-pin]');
+  if (pinEl) {
+    e.stopPropagation();
+    handlePinClick(pinEl.getAttribute('data-iid'), pinEl.getAttribute('data-pin'));
+    return;
+  }
+
+  // ③ wire
+  const wireId = e.target.getAttribute('data-wire');
+  if (wireId) {
+    e.stopPropagation();
+    S.sel = { kind: 'wire', id: wireId }; S.conn = null;
+    render(); setStatus('배선 선택됨   |   Delete: 삭제'); return;
+  }
+
+  // ④ component drag
+  const compEl = e.target.closest('[data-iid]');
+  if (compEl && !e.target.closest('[data-pin]')) {
+    e.stopPropagation();
+    const iid  = compEl.getAttribute('data-iid');
+    const inst = S.comps.find(c => c.iid === iid);
+    if (!inst) return;
+    const pt   = svgCoord(e.clientX, e.clientY);
+    S.drag = { iid, ox: pt.x - inst.x, oy: pt.y - inst.y };
+    S.sel  = { kind: 'comp', id: iid };
+    S.conn = null;
+    render(); return;
+  }
+
+  // ⑤ background → pan
+  S.sel  = null; S.conn = null;
+  $('temp-layer').innerHTML = '';
+  S.panStart = { mx: e.clientX, my: e.clientY, px: S.pan.x, py: S.pan.y };
+  render();
+});
+
+canvasWrap.addEventListener('mousemove', e => {
+  // drag component
+  if (S.drag) {
+    const inst = S.comps.find(c => c.iid === S.drag.iid);
+    if (inst) {
+      const pt = svgCoord(e.clientX, e.clientY);
+      inst.x = pt.x - S.drag.ox;
+      inst.y = pt.y - S.drag.oy;
+      render();
+    }
+    return;
+  }
+
+  // pan
+  if (S.panStart) {
+    S.pan.x = S.panStart.px + (e.clientX - S.panStart.mx);
+    S.pan.y = S.panStart.py + (e.clientY - S.panStart.my);
+    setTransform(); return;
+  }
+
+  // temp wire preview
+  if (S.conn) {
+    const pt  = svgCoord(e.clientX, e.clientY);
+    const tl  = $('temp-layer');
+    tl.innerHTML = '';
+    const dx  = Math.abs(pt.x - S.conn.wx) * 0.55 + 50;
+    const cp1x = S.conn.side === 'right' ? S.conn.wx + dx : S.conn.wx - dx;
+    const cp2x = pt.x - 30;
+    tl.appendChild(el('path', {
+      d: `M ${S.conn.wx} ${S.conn.wy} C ${cp1x} ${S.conn.wy} ${cp2x} ${pt.y} ${pt.x} ${pt.y}`,
+      fill: 'none',
+      stroke: PC[S.conn.type] || '#8d9db6',
+      'stroke-width': '2', 'stroke-dasharray': '7,4', opacity: '0.75',
+    }));
+    // glowing dot at cursor
+    tl.appendChild(el('circle', {
+      cx: pt.x, cy: pt.y, r: '5',
+      fill: PC[S.conn.type] || '#8d9db6', opacity: '0.6',
+    }));
+  }
+
+  // tooltip
+  const tooltip = $('tooltip');
+  const pinEl   = e.target.closest('[data-pin]');
+  if (pinEl && !S.drag) {
+    const iid  = pinEl.getAttribute('data-iid');
+    const pinId = pinEl.getAttribute('data-pin');
+    const inst = S.comps.find(c => c.iid === iid);
+    if (inst) {
+      const pin = def(inst.type).pins.find(p => p.id === pinId);
+      if (pin) {
+        tooltip.style.display = 'block';
+        tooltip.style.left = (e.clientX + 14) + 'px';
+        tooltip.style.top  = (e.clientY - 28) + 'px';
+        tooltip.textContent = `${def(inst.type).name}  /  ${pin.name}  [${pin.type.toUpperCase()}]`;
+      }
+    }
+  } else {
+    tooltip.style.display = 'none';
+  }
+});
+
+canvasWrap.addEventListener('mouseup', () => { S.drag = null; S.panStart = null; });
+canvasWrap.addEventListener('mouseleave', () => { S.drag = null; S.panStart = null; });
+
+canvasWrap.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = $('canvas').getBoundingClientRect();
+  const wx = (e.clientX - rect.left - S.pan.x) / S.zoom;
+  const wy = (e.clientY - rect.top  - S.pan.y) / S.zoom;
+  S.zoom = Math.min(3, Math.max(0.15, S.zoom * (e.deltaY < 0 ? 1.1 : 0.9)));
+  S.pan.x = e.clientX - rect.left - wx * S.zoom;
+  S.pan.y = e.clientY - rect.top  - wy * S.zoom;
+  setTransform();
+}, { passive: false });
+
+document.addEventListener('keydown', e => {
+  if (['Delete', 'Backspace'].includes(e.key) && e.target === document.body) {
+    deleteSelected();
+  }
+  if (e.key === 'Escape') {
+    S.conn = null; S.sel = null;
+    $('temp-layer').innerHTML = '';
+    render(); setStatus('취소됨');
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════════
+buildSidebar();
+buildLegend();
+setTransform();
+render();
+</script>
+</body>
+</html>
