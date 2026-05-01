@@ -103,6 +103,12 @@ RPi5(Gateway), STM32F446RE(MotorECU), STM32F411RE(SensorECU) 3노드가 MCP2515(
 
 `0x100 MotorCMD`(50ms), `0x200 MotorStatus`(100ms), `0x300 SensorData`(100ms, broadcast) 세 CAN ID로 노드 간 통신을 구성합니다. SensorECU가 거리 20cm 미만을 감지하면 MotorECU가 자율적으로 PWM을 0으로 설정(자동 정지)하고, 상태를 Gateway를 거쳐 WebUI까지 전파합니다.
 
+### 배선 다이어그램 (F446RE MotorECU — CAN 인터페이스)
+
+![F446RE CAN Wiring](tools/CAN_F446RE.png)
+
+STM32F446RE MotorECU CAN 인터페이스 핀 배선: bxCAN TX/RX → MCP2551 트랜시버 → 120Ω 종단 저항이 포함된 CAN 버스. 하드웨어 플래너 소스: [`tools/CAN_F446RE.json`](tools/CAN_F446RE.json).
+
 ---
 
 ## 시연 영상

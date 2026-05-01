@@ -1,0 +1,28 @@
+{
+  "comps": [
+    { "iid": "i2",  "type": "mcp2515",  "x": 531.82,  "y": 336.48 },
+    { "iid": "i3",  "type": "rpi5",     "x": 653.53,  "y": 47.53  },
+    { "iid": "i10", "type": "mcp2551",  "x": 1338.05, "y": 418.25 },
+    { "iid": "i11", "type": "f446re",   "x": 1415.39, "y": 46.80  },
+    { "iid": "i15", "type": "res120",   "x": 998.36,  "y": 279.49 }
+  ],
+  "wires": [
+    { "wid": "w4",  "fromIid": "i2",  "fromPin": "vcc",  "toIid": "i3",  "toPin": "3v3"   },
+    { "wid": "w5",  "fromIid": "i2",  "fromPin": "gnd",  "toIid": "i3",  "toPin": "gnd"   },
+    { "wid": "w6",  "fromIid": "i2",  "fromPin": "cs",   "toIid": "i3",  "toPin": "ce0"   },
+    { "wid": "w7",  "fromIid": "i2",  "fromPin": "so",   "toIid": "i3",  "toPin": "miso0" },
+    { "wid": "w8",  "fromIid": "i2",  "fromPin": "si",   "toIid": "i3",  "toPin": "mosi0" },
+    { "wid": "w9",  "fromIid": "i2",  "fromPin": "sck",  "toIid": "i3",  "toPin": "sclk0" },
+    { "wid": "w12", "fromIid": "i10", "fromPin": "vcc",  "toIid": "i11", "toPin": "5v"    },
+    { "wid": "w13", "fromIid": "i10", "fromPin": "gnd",  "toIid": "i11", "toPin": "gnd"   },
+    { "wid": "w14", "fromIid": "i10", "fromPin": "rxd",  "toIid": "i11", "toPin": "can_rx"},
+    { "wid": "w20", "fromIid": "i10", "fromPin": "txd",  "toIid": "i11", "toPin": "can_tx"},
+    { "wid": "w16", "fromIid": "i2",  "fromPin": "canh", "toIid": "i15", "toPin": "canh"  },
+    { "wid": "w17", "fromIid": "i10", "fromPin": "canh", "toIid": "i15", "toPin": "canh"  },
+    { "wid": "w18", "fromIid": "i2",  "fromPin": "canl", "toIid": "i15", "toPin": "canl"  },
+    { "wid": "w19", "fromIid": "i10", "fromPin": "canl", "toIid": "i15", "toPin": "canl"  }
+  ],
+  "uid": 21,
+  "pan": { "x": -331.97, "y": 41.52 },
+  "zoom": 0.79
+}

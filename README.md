@@ -103,6 +103,12 @@ Three nodes — RPi5 (Gateway), STM32F446RE (MotorECU), STM32F411RE (SensorECU) 
 
 Inter-node communication uses three CAN IDs: `0x100 MotorCMD` (50ms), `0x200 MotorStatus` (100ms), `0x300 SensorData` (100ms, broadcast). When SensorECU detects distance below 20cm, MotorECU autonomously sets PWM to 0 (auto-stop) and propagates the state through Gateway to WebUI.
 
+### Wiring Diagram (F446RE MotorECU — CAN Interface)
+
+![F446RE CAN Wiring](tools/CAN_F446RE.png)
+
+Pin-level wiring for the STM32F446RE MotorECU CAN interface: bxCAN TX/RX → MCP2551 transceiver → CAN bus with 120Ω termination resistor. Hardware planner source: [`tools/CAN_F446RE.json`](tools/CAN_F446RE.json).
+
 ---
 
 ## Demo
