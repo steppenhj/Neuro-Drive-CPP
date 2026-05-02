@@ -61,7 +61,7 @@ Browser ──WebSocket──▶ Python (Flask-SocketIO)
 
 ## MBSE Design Diagrams
 
-Documented with IBM Rhapsody in a consistent model from requirements definition through implementation.
+Documented with IBM Rhapsody and StarUML in a consistent model from requirements definition through implementation.
 
 ### Use Case Diagram
 
