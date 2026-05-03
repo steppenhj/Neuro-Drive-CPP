@@ -1,0 +1,22 @@
+# CubeIDE 빌드 결과물
+Debug/
+Release/
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.o
+*.d
+
+# CubeIDE 메타파일
+.metadata/
+.settings/
+.cproject
+.project
+RemoteSystemsTempFiles/
+
+# CubeMX 백업
+*.ioc.bak
+*.ioc~
+.mxproject
