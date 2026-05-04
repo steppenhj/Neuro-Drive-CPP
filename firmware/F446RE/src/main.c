@@ -112,8 +112,8 @@ int main(void)
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 //pwm 타이머 시작
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); //DC Motor
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3); // Servo
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); // Servo
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3); // Dc Motor
 
   //엔코더 시작
   HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);

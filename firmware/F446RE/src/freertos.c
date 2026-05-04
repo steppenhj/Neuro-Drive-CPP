@@ -94,7 +94,6 @@ void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 //큐 생성
-	extern osMessageQueueId_t myQueuehandle;
 	myQueueHandle = osMessageQueueNew(16, sizeof(MotorCommand_t), NULL);
   /* USER CODE END Init */
 
@@ -208,11 +207,18 @@ void StartTask02(void *argument)
 	  last_encoder_count = current_count;
 
 	  //큐에서 새 명령 확인 (없으면 이전 target 유지)
-	  osStatus_t status = osMessageQueueGet(myQueueHandle, &rcv_msg, NULL, 0);
-	  if(status == osOK)
+//	  osStatus_t status = osMessageQueueGet(myQueueHandle, &rcv_msg, NULL, 0);
+//	  if(status == osOK)
+//	  {
+//		  target_pwm = rcv_msg.speed;
+//		  current_angle = rcv_msg.angle;
+//	  }
+
+	  // 변경 코드: 큐에 쌓인 찌꺼기(과거 명령)를 모두 소진하고 '최신' 명령만 덮어씀
+	  while(osMessageQueueGet(myQueueHandle, &rcv_msg, NULL, 0) == osOK)
 	  {
-		  target_pwm = rcv_msg.speed;
-		  current_angle = rcv_msg.angle;
+	       target_pwm = rcv_msg.speed;
+	       current_angle = rcv_msg.angle;
 	  }
 
 	  // FF + FB 결합
@@ -225,30 +231,30 @@ void StartTask02(void *argument)
 	  if(final_pwm > MOTOR_PWM_MAX) final_pwm = MOTOR_PWM_MAX;
 	  if(final_pwm < -MOTOR_PWM_MAX) final_pwm = -MOTOR_PWM_MAX;
 
-	  //모터 방향 + PWM
+	  //모터 방향 + PWM (DC 모터 = htim3, PB0)
 	  if(final_pwm > 0)
 	  {
 		  HAL_GPIO_WritePin(MOTOR_IN1_GPIO_Port, MOTOR_IN1_Pin, GPIO_PIN_SET);
 		  HAL_GPIO_WritePin(MOTOR_IN2_GPIO_Port, MOTOR_IN2_Pin, GPIO_PIN_RESET);
-		  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)final_pwm);
+		  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, (uint32_t)final_pwm);
 	  }
 	  else if(final_pwm < 0)
       {
           HAL_GPIO_WritePin(MOTOR_IN1_GPIO_Port, MOTOR_IN1_Pin, GPIO_PIN_RESET);
           HAL_GPIO_WritePin(MOTOR_IN2_GPIO_Port, MOTOR_IN2_Pin, GPIO_PIN_SET);
-          __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)abs(final_pwm));
+          __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, (uint32_t)abs(final_pwm));
       }
       else
       {
           HAL_GPIO_WritePin(MOTOR_IN1_GPIO_Port, MOTOR_IN1_Pin, GPIO_PIN_RESET);
           HAL_GPIO_WritePin(MOTOR_IN2_GPIO_Port, MOTOR_IN2_Pin, GPIO_PIN_RESET);
-          __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 0);
+          __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0);
       }
 
-	  // 서보 각도 제한 + 출력 (서보 모터에 무리 안 가는 선에서)
+	  // 서보 각도 제한 + 출력 (서보 = htim2, PA0)
 	  if(current_angle < SERVO_MIN_US) current_angle = SERVO_MIN_US;
 	  if(current_angle > SERVO_MAX_US) current_angle = SERVO_MAX_US;
-      __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, (uint32_t)current_angle);
+      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)current_angle);
 
       // 1초마다 LED 토글 (생존 신호)
       static uint16_t led_counter = 0;
@@ -287,8 +293,8 @@ void StartTask03(void *argument)
 		  stop_msg.angle = SERVO_CENTER_US;
 		  osMessageQueuePut(myQueueHandle, &stop_msg, 0, 0);
 
-		  //즉시 하드웨어 차단 (이중 안전)
-		  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 0);
+		  //즉시 하드웨어 차단 (이중 안전) - DC 모터 = htim3
+		  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0);
 		  HAL_GPIO_WritePin(MOTOR_IN1_GPIO_Port, MOTOR_IN1_Pin, GPIO_PIN_RESET);
           HAL_GPIO_WritePin(MOTOR_IN2_GPIO_Port, MOTOR_IN2_Pin, GPIO_PIN_RESET);
           HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
