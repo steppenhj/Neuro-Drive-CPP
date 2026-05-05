@@ -207,18 +207,11 @@ void StartTask02(void *argument)
 	  last_encoder_count = current_count;
 
 	  //큐에서 새 명령 확인 (없으면 이전 target 유지)
-//	  osStatus_t status = osMessageQueueGet(myQueueHandle, &rcv_msg, NULL, 0);
-//	  if(status == osOK)
-//	  {
-//		  target_pwm = rcv_msg.speed;
-//		  current_angle = rcv_msg.angle;
-//	  }
-
-	  // 변경 코드: 큐에 쌓인 찌꺼기(과거 명령)를 모두 소진하고 '최신' 명령만 덮어씀
-	  while(osMessageQueueGet(myQueueHandle, &rcv_msg, NULL, 0) == osOK)
+	  osStatus_t status = osMessageQueueGet(myQueueHandle, &rcv_msg, NULL, 0);
+	  if(status == osOK)
 	  {
-	       target_pwm = rcv_msg.speed;
-	       current_angle = rcv_msg.angle;
+		  target_pwm = rcv_msg.speed;
+		  current_angle = rcv_msg.angle;
 	  }
 
 	  // FF + FB 결합
@@ -309,4 +302,3 @@ void StartTask03(void *argument)
 /* USER CODE BEGIN Application */
 
 /* USER CODE END Application */
-
