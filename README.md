@@ -8,8 +8,15 @@
 ![STM32](https://img.shields.io/badge/MCU-STM32F411RE-03234B?logo=stmicroelectronics&logoColor=white)
 ![Raspberry Pi](https://img.shields.io/badge/MPU-Raspberry_Pi_5-C51A4A?logo=raspberrypi&logoColor=white)
 
-Heterogeneous MPU/MCU distributed control system for an Ackermann-steering UGV.  
-The focus is on **real-time control, communication pipeline design, and fail-safe mechanisms** across two physically separate processors.
+A self-driving RC car platform demonstrating how to split **soft real-time (Linux)** and **hard real-time (RTOS)** responsibilities across two physically separate processors — and how to make them cooperate when neither can fully trust the other.
+
+The focus is on **real-time control, communication pipeline design, and fail-safe mechanisms** across a heterogeneous MPU/MCU architecture for an Ackermann-steering UGV.
+
+---
+
+### Demo — Phase 4: Return-to-Home
+
+https://github.com/user-attachments/assets/2779ef3e-39d6-4a21-8bef-ed63d195250f
 
 ---
 
@@ -27,7 +34,7 @@ Click any phase for the detailed write-up.
 | **3** | [RTOS & Interrupt-Driven Control](https://steppenhj.github.io/#phase3) | Bare-metal polling missed 100Hz deadlines → FreeRTOS + ISR + Queue, 2-DOF PID | ✅ Done |
 | **4** | [Return-to-Home Safety System](https://steppenhj.github.io/#phase4) | Watchdog vs. autonomous operation conflict → Keep-Alive pattern, 8B → 12B protocol | ✅ Done |
 | **5** | [OTA Firmware Update](https://steppenhj.github.io/#phase5) | Physical reflashing overhead → custom bootloader, CRC handshake, sector management | ✅ Done |
-| **6** | [CAN Bus & Multi-ECU](https://steppenhj.github.io/#phase6) | Single UART bottleneck → 3-node CAN 2.0 distributed control | 🟡 In Progress |
+| **6** | [CAN Bus & Multi-ECU](https://steppenhj.github.io/#phase6) | Single UART bottleneck → 3-node CAN 2.0 distributed control | 🔀 Moved to [multi-mcu-can](https://github.com/steppenhj/multi-mcu-can) |
 
 ---
 
@@ -91,6 +98,8 @@ Defines the system's operational states. From `OPERATING`, receiving an RTH comm
 
 ## Phase 6 — CAN Bus Diagrams
 
+> Initial design and F446RE migration completed in this repo. Full multi-ECU implementation continues in **[multi-mcu-can](https://github.com/steppenhj/multi-mcu-can)**.
+
 ### Block Diagram (3-Node CAN Architecture)
 
 ![Phase 6 Block Diagram](assets/phase6_block_diagram.png)
@@ -112,10 +121,6 @@ Pin-level wiring for the STM32F446RE MotorECU CAN interface: bxCAN TX/RX → MCP
 ---
 
 ## Demo
-
-### Phase 4 — Return-to-Home
-
-https://github.com/user-attachments/assets/2779ef3e-39d6-4a21-8bef-ed63d195250f
 
 ### Phase 5 — OTA Firmware Update
 
@@ -151,7 +156,7 @@ https://github.com/user-attachments/assets/81a38263-ff0c-47a8-944d-1e0a582e165a
 | Server | Python 3.11, Flask-SocketIO, eventlet |
 | Control Core | C++17, UDP socket, threads, mutex |
 | Firmware | C (STM32 HAL), FreeRTOS, UART ISR, TIM/PWM, custom bootloader |
-| Communication | WebSocket, UDP (struct pack), UART (115200 baud), CAN 2.0, SPI |
+| Communication | WebSocket, UDP (struct pack), UART (115200 baud) |
 | Design Tools | IBM Rhapsody \| StarUML (MBSE), STM32CubeIDE |
 | Hardware | Raspberry Pi 5, STM32 Nucleo-F411RE, L298N, Ackermann chassis |
 
@@ -206,6 +211,12 @@ python3 app.py
 cd rpi/web/
 python3 ota_flasher.py parkhaejin_car.bin
 ```
+
+---
+
+## Follow-up Project
+
+**[multi-mcu-can](https://github.com/steppenhj/multi-mcu-can)** — Phase 6 was extracted into a dedicated repository focused on CAN 2.0 multi-MCU distributed communication. It strips away the actuator layer to concentrate on the fundamentals: bxCAN peripheral configuration, MCP2515 SPI-to-CAN bridging, and message arbitration across multiple nodes.
 
 ---
 
