@@ -114,7 +114,8 @@ RPi5(Gateway), STM32F446RE(MotorECU), STM32F411RE(SensorECU) 3노드가 MCP2515(
 
 ![F446RE CAN Wiring](tools/CAN_F446RE.png)
 
-STM32F446RE MotorECU CAN 인터페이스 핀 배선: bxCAN TX/RX → MCP2551 트랜시버 → 120Ω 종단 저항이 포함된 CAN 버스. 하드웨어 플래너 소스: [`tools/CAN_F446RE.json`](tools/CAN_F446RE.json).
+STM32F446RE MotorECU CAN 인터페이스 핀 배선: bxCAN TX/RX → MCP2551 트랜시버 → 120Ω 종단 저항이 포함된 CAN 버스.
+위 배선도는 직접 제작한 웹 기반 배선도 편집기로 그렸으며, 소스는 [`tools/CAN_F446RE.json`](tools/CAN_F446RE.json)입니다.
 
 ---
 
