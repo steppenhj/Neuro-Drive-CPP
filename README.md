@@ -69,7 +69,7 @@ Browser ──WebSocket──▶ Python (Flask-SocketIO)
 IBM Rhapsody, StarUML을 사용해 요구사항 정의부터 구현까지 일관된 모델로 문서화했습니다.
 
 <details>
-<summary><b>📐 MBSE 다이어그램 4종 펼쳐보기</b> — 유스케이스 · 클래스 · 시퀀스 · 상태차트</summary>
+<summary><kbd>&nbsp; ▶ 클릭하여 펼치기 &nbsp;</kbd> &nbsp; <b>📐 MBSE 다이어그램 4종</b> — 유스케이스 · 클래스 · 시퀀스 · 상태차트</summary>
 
 <br>
 
@@ -106,7 +106,7 @@ RPi 측 Control Core의 C++ 클래스 구조입니다. `SharedContext`가 `std::
 > 초기 설계 및 F446RE 마이그레이션은 이 저장소에서 완료되었습니다. 전체 Multi-ECU 구현은 **[multi-mcu-can](https://github.com/steppenhj/multi-mcu-can)** 에서 계속됩니다.
 
 <details>
-<summary><b>🔌 Phase 6 CAN 다이어그램 펼쳐보기</b> — 블록 · 시퀀스 · 배선도</summary>
+<summary><kbd>&nbsp; ▶ 클릭하여 펼치기 &nbsp;</kbd> &nbsp; <b>🔌 Phase 6 CAN 다이어그램</b> — 블록 · 시퀀스 · 배선도</summary>
 
 <br>
 
