@@ -68,6 +68,11 @@ Browser ──WebSocket──▶ Python (Flask-SocketIO)
 
 IBM Rhapsody, StarUML을 사용해 요구사항 정의부터 구현까지 일관된 모델로 문서화했습니다.
 
+<details>
+<summary><b>📐 MBSE 다이어그램 4종 펼쳐보기</b> — 유스케이스 · 클래스 · 시퀀스 · 상태차트</summary>
+
+<br>
+
 ### 유스케이스 다이어그램
 
 ![Use Case Diagram](assets/usecase_diagram.png)
@@ -92,11 +97,18 @@ RPi 측 Control Core의 C++ 클래스 구조입니다. `SharedContext`가 `std::
 
 시스템의 동작 상태를 정의합니다. `OPERATING` 상태에서 RTH 명령 수신 시 `RTH_RECORDING` → `RTH_ACTIVE`로 전이하며, Watchdog 타임아웃(`timeout == true`) 발생 시 `FAIL_SAFE`로 전이합니다.
 
+</details>
+
 ---
 
 ## Phase 6 — CAN Bus 다이어그램
 
 > 초기 설계 및 F446RE 마이그레이션은 이 저장소에서 완료되었습니다. 전체 Multi-ECU 구현은 **[multi-mcu-can](https://github.com/steppenhj/multi-mcu-can)** 에서 계속됩니다.
+
+<details>
+<summary><b>🔌 Phase 6 CAN 다이어그램 펼쳐보기</b> — 블록 · 시퀀스 · 배선도</summary>
+
+<br>
 
 ### 블록 다이어그램 (3노드 CAN 아키텍처)
 
@@ -116,6 +128,8 @@ RPi5(Gateway), STM32F446RE(MotorECU), STM32F411RE(SensorECU) 3노드가 MCP2515(
 
 STM32F446RE MotorECU CAN 인터페이스 핀 배선: bxCAN TX/RX → MCP2551 트랜시버 → 120Ω 종단 저항이 포함된 CAN 버스.
 위 배선도는 직접 제작한 웹 기반 배선도 편집기로 그렸으며, 소스는 [`tools/CAN_F446RE.json`](tools/CAN_F446RE.json)입니다.
+
+</details>
 
 ---
 
