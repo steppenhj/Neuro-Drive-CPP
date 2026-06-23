@@ -87,7 +87,7 @@ private:
     int sockfd;
     int port;
     SharedContext& ctx;
-    std::thread receiver_thread;
+    std::thread receiver_thread; //이게 지역변수가 아니라 멤버변수임!
 
     //Python과 약속한 패킷 구조 (struct.pack('ffi', ...))
     // 크기: float float int = 12bytes
@@ -352,7 +352,7 @@ private:
     int serial_fd;
     string device_name;
     SharedContext& ctx;
-    std::thread control_thread;
+    std::thread control_thread; //이것도 지역변수가 아니라 멤버변수!
 
     // 상수
     static const int WATCHDOG_MS = 500;
@@ -570,6 +570,8 @@ int main() {
     // 2. 객체 생성 (의존성 주입)
     UdpReceiver receiver(5555, shared);
     VehicleController car("/dev/ttyACM0", shared);
+    // 이렇게 둘 다 호출하는 순간 스레드 2개가 동시에 돌기 시작함
+    // 스레드의 수명을 객체와 일치시키려고 멤버변수!
 
     // 3. 시스템 가동
     receiver.start();
