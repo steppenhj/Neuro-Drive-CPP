@@ -6,7 +6,7 @@
 ![STM32](https://img.shields.io/badge/MCU-STM32F411RE-03234B?logo=stmicroelectronics&logoColor=white)
 ![Raspberry Pi](https://img.shields.io/badge/MPU-Raspberry_Pi_5-C51A4A?logo=raspberrypi&logoColor=white)
 
-물리적으로 분리된 두 프로세서에 **소프트 실시간(Linux)**과 **하드 실시간(RTOS)** 역할을 나누고, 서로를 완전히 신뢰할 수 없는 상황에서 협력하게 만드는 방법을 보여주는 자율주행 RC카 플랫폼.
+물리적으로 분리된 두 프로세서에 **소프트 실시간(Linux)** 과 **하드 실시간(RTOS)** 역할을 나누고, 서로를 완전히 신뢰할 수 없는 상황에서 협력하게 만드는 방법을 보여주는 자율주행 RC카 플랫폼.
 
 Ackermann 조향 UGV를 위한 이기종 MPU/MCU 아키텍처에서의 **실시간 제어, 통신 파이프라인 설계, Fail-Safe 메커니즘**에 초점을 맞춥니다.
 
@@ -96,7 +96,7 @@ RPi 측 Control Core의 C++ 클래스 구조입니다. `SharedContext`가 `std::
 
 ## Phase 6 — CAN Bus 다이어그램
 
-> 초기 설계 및 F446RE 마이그레이션은 이 저장소에서 완료되었습니다. 전체 Multi-ECU 구현은 **[multi-mcu-can](https://github.com/steppenhj/multi-mcu-can)**에서 계속됩니다.
+> 초기 설계 및 F446RE 마이그레이션은 이 저장소에서 완료되었습니다. 전체 Multi-ECU 구현은 **[multi-mcu-can](https://github.com/steppenhj/multi-mcu-can)** 에서 계속됩니다.
 
 ### 블록 다이어그램 (3노드 CAN 아키텍처)
 
