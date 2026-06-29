@@ -23,6 +23,8 @@ Neuro-Drive 프로젝트에 사용된 전체 부품 목록입니다.
 | 4 | 모터 드라이버 HAT | Waveshare I2C interface Motor Driver HAT Raspberry Pi Onboard PCA9685 Chip | 스마트 유통 |
 | 17 | 모터 드라이버 | L298N 모터드라이버 모듈 (방열판 포함) | 엘레파츠 |
 
+> ⚠️ **고장**: #1 Ackermann 섀시의 **조향 서보가 Phase 6(CAN 마이그레이션) 중 소손(탐)** → 현재 구동계 사용 불가. 단순 사고가 아니라 *전진(2번째 MCU + CAN 추가)의 비용* — 이 실패가 multi-mcu-can으로 CAN 멀티노드 기본기를 단단히 다지는 계기가 됨(차량전장·방산 체계통합 직결 자산). Neuro-Drive의 *"실패에서의 재설계"* 와 같은 결.
+
 ---
 
 ## 전원계
