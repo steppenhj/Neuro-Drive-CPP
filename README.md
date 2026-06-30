@@ -191,6 +191,8 @@ https://github.com/user-attachments/assets/81a38263-ff0c-47a8-944d-1e0a582e165a
 | 모터 드라이버 | Waveshare I2C Motor Driver HAT / L298N |
 | 배터리 | LiPo 7.4V 2S (B2200N-SP35) + UBEC 5A 레귤레이터 |
 
+![실제 하드웨어 빌드 — RPi 5 + STM32 Nucleo 제어 스택, 전원 분배, 카메라/모터 배선](assets/car_picture.jpg)
+
 ---
 
 ## 시작하기
