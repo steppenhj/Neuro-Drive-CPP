@@ -41,7 +41,7 @@ Phase 2와 3 사이의 **전환점** — 필드 테스트 중 발생한 하드�
 ![System Architecture](assets/omd_diagram.png)
 
 **MPU (Raspberry Pi 5 / Linux)** — Web UI, WebSocket 서버, UDP 릴레이, 상위 레벨 모드 관리 (RTH, Keep-Alive).  
-**MCU (STM32F411RE / FreeRTOS)** — UART ISR, RTOS 태스크 스케줄링, PWM 생성, 엔코더 읽기, Watchdog 타이머.
+**MCU (STM32F411RE / FreeRTOS)** — UART ISR, RTOS 태스크 스케줄링, PWM 생성, 엔코더 읽기, 명령 타임아웃 감시(소프트웨어 워치독 태스크).
 
 ### 데이터 흐름
 
@@ -147,11 +147,11 @@ https://github.com/user-attachments/assets/81a38263-ff0c-47a8-944d-1e0a582e165a
 
 **분산 제어** — RPi는 네트워킹과 모드 로직을, STM32는 Hard Real-Time 모터 제어를 담당합니다. 두 프로세서는 서로의 역할을 대체할 수 없습니다.
 
-**FreeRTOS 태스크 아키텍처** — UART 수신(ISR + Queue), 모터 제어, 엔코더 읽기, 안전 모니터링이 독립적인 RTOS 태스크로 실행되며, Mutex로 보호되는 공유 상태를 사용합니다.
+**FreeRTOS 태스크 아키텍처** — UART 수신(ISR + Queue), 모터 제어, 엔코더 읽기, 안전 모니터링이 독립적인 RTOS 태스크로 실행되며, 태스크 간 명령 전달은 메시지 큐(osMessageQueue)로 처리합니다.
 
 **2-DOF 제어 (Feedback + Feedforward)** — STM32는 100Hz P-controller로 외란을 억제(Feedback)하고, Python은 조향 각도에 비례한 코너링 부스트를 적용(Feedforward)합니다. 단일 루프 PID보다 빠르고 안정적인 응답을 제공합니다.
 
-**Watchdog & Fail-Safe** — 500ms 이내에 유효한 패킷이 수신되지 않으면, MCU가 RPi와 독립적으로 모든 모터를 자율 정지합니다.
+**Watchdog & Fail-Safe** — RPi(C++ 제어 루프)와 MCU(FreeRTOS Task_Safety)가 각각 500ms 명령 타임아웃을 독립 감시하는 2중 소프트웨어 워치독. 링크 두절 시 MCU가 RPi와 무관하게 모터 PWM을 하드웨어 레벨에서 즉시 차단합니다.
 
 **Return-to-Home (RTH)** — 엔코더 기반 경로 기록(LIFO 스택)과 자율 역주행. Watchdog 안전 기능과 자율 동작 간의 충돌을 Keep-Alive 패턴으로 해결하고, 프로토콜을 8B에서 12B로 확장해 전체 스택에 모드를 전파합니다.
 
