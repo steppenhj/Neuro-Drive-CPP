@@ -16,6 +16,11 @@
  *      RTH를 CPP (RPi) 에 넣은 이유, STM32가 아닌: mcu sram은 매우 작기에 memory overflow가 날 수 있다고 판단함
  *                                              또, M4 칩이니깐 FPU(부동소수점 연산 유닛)의 덕이 있지 않겠나 라고 생각함
  * 
+ *      7/21 추가
+ *      안전 정책(fail-stop): 통신 두절(watchdog timeout) 시 무조건 정지. 
+ *                  RTH는 조작자가 트리거하는 '감독 하 자율(supervised autonomy)' - 
+ *                  복귀 중에도 링크가 살아있어야 하며(dead-man switch), 두절 시 즉시 FAIL_SAFE 정지
+ *
  *  compile 명령어: g++ -std=c++17 -O2 -pthread -o control_core control_core_oop.cpp
  */
 
@@ -482,6 +487,13 @@ private:
             if(rth_mode != 2) {
                 sendDriveCommand(cmd.throttle, cmd.steering);
             }
+            // 7/21추가
+            else if(timeout){
+                // FAIL_SAFE: 복귀 중 링크 상실 -> 즉시 정지
+                // (상태차트의 RTH_ACTIVE -> FAIL_SAFE 전이 구현)
+                // 5b와 달리 엔코더 수신에 의존하지 않고 매 틱 무조건 전송된다
+                sendMotorCommand(0, 1500);
+            }
 
             //**************
             // Ping-Pong
@@ -516,6 +528,8 @@ private:
                 }    
 
                 // 5b. RTH 복귀 모드
+                // !timeout = dead-man switch: 자율 복귀도 링크(조작자 감독)가 살아있을 때만 진행
+                // 링크 상실 시에는 위 3번 분기가 매 틱 정지 명령을 보낸다 (fail-stop)
                 if(rth_mode == 2 && !timeout) {
                     auto motor = rth.executeStep(enc_val);
 
