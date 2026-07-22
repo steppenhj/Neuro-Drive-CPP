@@ -103,7 +103,7 @@ RPi 측 Control Core의 C++ 클래스 구조입니다. `SharedContext`가 `std::
 
 ## Phase 6 — CAN Bus 다이어그램
 
-> 초기 설계 및 F446RE 마이그레이션은 이 저장소에서 완료되었습니다. 전체 Multi-ECU 구현은 **[multi-mcu-can](https://github.com/steppenhj/multi-mcu-can)** 에서 계속됩니다.
+> 3노드 아키텍처와 배선 등 초기 설계는 이 저장소에서 수행했으며, CAN 통신 구현은 **[multi-mcu-can](https://github.com/steppenhj/multi-mcu-can)** 에서 완료되었습니다.
 
 <details>
 <summary><kbd>&nbsp; ▶ 클릭하여 펼치기 &nbsp;</kbd> &nbsp; <b>🔌 Phase 6 CAN 다이어그램</b> — 블록 · 시퀀스 · 배선도</summary>
@@ -120,7 +120,7 @@ RPi5(Gateway), STM32F446RE(MotorECU), STM32F411RE(SensorECU) 3노드가 MCP2515(
 
 ![Phase 6 Sequence Diagram](assets/phase6_sequence_diagram.png)
 
-`0x100 MotorCMD`(50ms), `0x200 MotorStatus`(100ms), `0x300 SensorData`(100ms, broadcast) 세 CAN ID로 노드 간 통신을 구성합니다. SensorECU가 거리 20cm 미만을 감지하면 MotorECU가 자율적으로 PWM을 0으로 설정(자동 정지)하고, 상태를 Gateway를 거쳐 WebUI까지 전파합니다.
+`0x100 MotorCMD`(50ms), `0x200 MotorStatus`(100ms), `0x300 SensorData`(100ms, broadcast) 세 CAN ID로 노드 간 통신을 구성하도록 설계했습니다. SensorECU가 거리 20cm 미만을 감지하면 MotorECU가 자율적으로 PWM을 0으로 설정(자동 정지)하고, 상태를 Gateway를 거쳐 WebUI까지 전파합니다.
 
 ### 배선 다이어그램 (F446RE MotorECU — CAN 인터페이스)
 
@@ -149,11 +149,11 @@ https://github.com/user-attachments/assets/81a38263-ff0c-47a8-944d-1e0a582e165a
 
 **FreeRTOS 태스크 아키텍처** — UART 수신(ISR + Queue), 모터 제어, 엔코더 읽기, 안전 모니터링이 독립적인 RTOS 태스크로 실행되며, 태스크 간 명령 전달은 메시지 큐(osMessageQueue)로 처리합니다.
 
-**2-DOF 제어 (Feedback + Feedforward)** — STM32는 100Hz P-controller로 외란을 억제(Feedback)하고, Python은 조향 각도에 비례한 코너링 부스트를 적용(Feedforward)합니다. 단일 루프 PID보다 빠르고 안정적인 응답을 제공합니다.
+Feedback + Feedforward 하이브리드 제어 — STM32는 100Hz P-controller로 속도 오차를 보정(Feedback)하고, Python은 조향 각도에 비례한 코너링 부스트를 선적용(Feedforward)합니다. 조향은 open-loop 서보 제어입니다.
 
-**Watchdog & Fail-Safe** — RPi(C++ 제어 루프)와 MCU(FreeRTOS Task_Safety)가 각각 500ms 명령 타임아웃을 독립 감시하는 2중 소프트웨어 워치독. 링크 두절 시 MCU가 RPi와 무관하게 모터 PWM을 하드웨어 레벨에서 즉시 차단합니다.
+**Watchdog & Fail-Safe** — RPi(C++ 제어 루프)와 MCU(FreeRTOS Task_Safety)가 각각 500ms 명령 타임아웃을 독립 감시하는 2중 소프트웨어 워치독. 링크 두절 시 MCU가 RPi와 무관하게 모터 PWM 출력을 차단합니다 (Task_Safety 감시 주기 50ms → 최악 반응 지연 약 550ms).
 
-**Return-to-Home (RTH)** — 엔코더 기반 경로 기록(LIFO 스택)과 자율 역주행. Watchdog 안전 기능과 자율 동작 간의 충돌을 Keep-Alive 패턴으로 해결하고, 프로토콜을 8B에서 12B로 확장해 전체 스택에 모드를 전파합니다.
+**Return-to-Home (RTH)** — 엔코더 기반 경로 기록(LIFO 스택)과 자율 역주행. Watchdog 안전 기능과 자율 동작 간의 충돌을 Keep-Alive 패턴으로 해결하고, 전체 스택에 모드를 전파합니다. 복귀는 조작자 감독 하에서만 지속되며(dead-man switch), 복귀 중 링크 두절 시 즉시 FAIL_SAFE 정지합니다.
 
 **OTA Firmware 업데이트** — 핸드셰이크 프로토콜, CRC 검증 이미지 전송, 섹터 단위 Flash 관리, 올바른 Bootloader→Application 점프 시퀀스를 갖춘 커스텀 UART Bootloader.
 
