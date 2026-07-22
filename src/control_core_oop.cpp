@@ -408,12 +408,6 @@ private:
 
         tcsetattr(serial_fd, TCSANOW, &options);
 
-        // 피드백 소켓 초기화
-        // feedback_sock = socket(AF_INET, SOCK_DGRAM, 0);
-        // feedback_addr.sin_family = AF_INET;
-        // feedback_addr.sin_port = htons(5556);
-        // inet_pton(AF_INET, "127.0.0.1", &feedback_addr.sin_addr);
-
         return true;
     }
 
@@ -566,7 +560,7 @@ private:
 
 public:
     VehicleController(string dev, SharedContext& _ctx)
-        : device_name(dev), ctx(_ctx), serial_fd(-1), rth(_ctx)
+        : device_name(dev), ctx(_ctx), rth(_ctx)
     {
         // 피드백 소켓: 시리얼 성공 여부와 무관하게 항상 초기화
         feedback_sock = socket(AF_INET, SOCK_DGRAM, 0);
