@@ -21,7 +21,7 @@
  *                  RTH는 조작자가 트리거하는 '감독 하 자율(supervised autonomy)' - 
  *                  복귀 중에도 링크가 살아있어야 하며(dead-man switch), 두절 시 즉시 FAIL_SAFE 정지
  *
- *  compile 명령어: g++ -std=c++17 -O2 -pthread -o control_core control_core_oop.cpp
+ *  compile 명령어: g++ -std=c++17 -O2 -Wall -Wextra -pthread -o /dev/null src/control_core_oop.cpp
  */
 
  #include <iostream>
@@ -31,6 +31,7 @@
  #include <chrono>
  #include <cstring>
  #include <cmath>
+ #include <algorithm>
  #include <unistd.h>
  #include <sys/socket.h>
  #include <netinet/in.h>
@@ -113,11 +114,23 @@ private:
             int n = recvfrom(sockfd, &pkt, sizeof(pkt), 0, (struct sockaddr*)&cliaddr, &len);
 
             if(n==(int)sizeof(pkt)){
+                // --- 입력 검증: 네트워크 입력은 신뢰하지 않는다 ---
+                // NaN/Inf는 (int) 캐스팅 시 미정의 동작 -> 패킷 폐기
+                // 워치독 갱신 전에 걸러낸다 (유효한 패킷만 링크 생존 증거로 인정)
+                if(!std::isfinite(pkt.th) || !std::isfinite(pkt.st)) continue;
+
+                // 모드 화이트리스트 (FSM에 정의된 상태만 허용)
+                if(pkt.mode != 0 && pkt.mode != 1 && pkt.mode != 2 && pkt.mode != 99) continue;
+
+                //범위 클램프: 조종값 계약은 [-1, 1]
+                float th = std::clamp(pkt.th, -1.0f, 1.0f);
+                float st = std::clamp(pkt.st, -1.0f, 1.0f);
+
                 //조종 명령 업데이트
                 {
                     std::lock_guard<std::mutex> lock(ctx.data_mutex);
-                    ctx.throttle = pkt.th;
-                    ctx.steering = pkt.st;
+                    ctx.throttle = th;
+                    ctx.steering = st;
                 }
                 // WatchDog 시간 갱신 (atomic이라 mutex 필요 없다)
                 ctx.last_rx_us.store(SharedContext::now_us(), std::memory_order_relaxed);
