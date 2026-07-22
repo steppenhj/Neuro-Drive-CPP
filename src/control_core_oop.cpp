@@ -361,6 +361,15 @@ public:
         acc_enc         = 0;
         direction       = 1;
     }
+
+    // 경로와 스텝 상태 전체 폐기 (새 기록 시작 또는 복귀 이탈 시)
+    // 취소 후 '재개'를 지원하지 않는 이유: 취소 중 수동 주행하면
+    // dead-reckoning 기준 위치가 어긋나 남은 경로가 무의미해지기 때문
+    void discardPath(){
+        std::lock_guard<std::mutex> lock(ctx.path_mutex);
+        ctx.path.clear();
+        reset();
+    }
 };
 
 
@@ -475,6 +484,8 @@ private:
         using clock = std::chrono::steady_clock;
         auto next_tick = clock::now();
 
+        int prev_rth_mode = 0; //모드 전환 감지용
+
         while(ctx.keep_running) {
             // --- 주기 설정 (10ms = 100Hz) ---
             next_tick += std::chrono::milliseconds(10);
@@ -491,6 +502,15 @@ private:
 
             // 3. 일반 주행 명령 (RTH 복귀 중이 아닐 때만.)
             int rth_mode = ctx.rth_mode.load();
+
+            // 모드 전환 감지: 새 기록 시작(->1) 또는 복귀 이탈(2->)이면 경로 폐기
+            if(rth_mode != prev_rth_mode){
+                if(rth_mode == 1 || prev_rth_mode == 2){
+                    rth.discardPath();
+                }
+                prev_rth_mode = rth_mode;
+            }
+
             if(rth_mode != 2) {
                 sendDriveCommand(cmd.throttle, cmd.steering);
             }
