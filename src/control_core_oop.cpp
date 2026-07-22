@@ -371,7 +371,7 @@ public:
 // 실제 작업은 SerialParser, RTHController에게 위임.
 class VehicleController {
 private:
-    int serial_fd;
+    int serial_fd = -1;
     string device_name;
     SharedContext& ctx;
     std::thread control_thread; //이것도 지역변수가 아니라 멤버변수!
@@ -384,7 +384,7 @@ private:
     RTHController rth;
 
     // 엔코더 피드백용 UDP 소켓 (-> app.py:5556)
-    int feedback_sock;
+    int feedback_sock = -1;
     sockaddr_in feedback_addr{};
 
     // ------ 시리얼 포트 열기 (내부용) -----------
@@ -409,10 +409,10 @@ private:
         tcsetattr(serial_fd, TCSANOW, &options);
 
         // 피드백 소켓 초기화
-        feedback_sock = socket(AF_INET, SOCK_DGRAM, 0);
-        feedback_addr.sin_family = AF_INET;
-        feedback_addr.sin_port = htons(5556);
-        inet_pton(AF_INET, "127.0.0.1", &feedback_addr.sin_addr);
+        // feedback_sock = socket(AF_INET, SOCK_DGRAM, 0);
+        // feedback_addr.sin_family = AF_INET;
+        // feedback_addr.sin_port = htons(5556);
+        // inet_pton(AF_INET, "127.0.0.1", &feedback_addr.sin_addr);
 
         return true;
     }
@@ -511,7 +511,7 @@ private:
             //**************
             // Ping-Pong
             // Ping 전송 로직 */
-            if(ctx.ping_requested.exchange(false)){
+            if(ctx.ping_requested.exchange(false) && serial_fd != -1){
                 const char* ping = "PING\n";
                 write(serial_fd, ping, 5);
                 cout << "[핑퐁-디버깅] PING sent to STM32" << endl; //보내는지 확인
@@ -568,6 +568,12 @@ public:
     VehicleController(string dev, SharedContext& _ctx)
         : device_name(dev), ctx(_ctx), serial_fd(-1), rth(_ctx)
     {
+        // 피드백 소켓: 시리얼 성공 여부와 무관하게 항상 초기화
+        feedback_sock = socket(AF_INET, SOCK_DGRAM, 0);
+        feedback_addr.sin_family = AF_INET;
+        feedback_addr.sin_port = htons(5556);
+        inet_pton(AF_INET, "127.0.0.1", &feedback_addr.sin_addr);
+
         if(!openSerial()){
             cerr << "[Error] Failed to Open serial: " << dev << endl;
         }
