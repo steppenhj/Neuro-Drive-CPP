@@ -573,7 +573,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		// 일단 데이터 오는지 확인해야 하니깐 데이터 오면 무조건 깜빡이기
 		HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 
-		static uint8_t buffer[64]; //static으로 선언했다
+		static uint8_t buffer[64]; //static으로 선언했다-> 함수가 끝나도 값이 유지돼야 함
 		static uint8_t buf_index = 0;
 
 		// 문장 끝 확인
@@ -772,7 +772,7 @@ void StartTask02(void *argument)
   int final_pwm = 0;
 
   PID_t pid_speed = {
-		  .kp = 3.0f,  // 4/23 단위 바뀌니깐 게인 재조정 필요함
+		  .kp = 3.0f,  // 4/23 단위 바뀌니깐 게인 재조정 필요함. + 7/22 그리고 사실 PID는 제대로 못 했다고 볼 수 있다. 어렵다.
 		  .ki = 0.0f,
 		  .kd = 0.0f,
 		  .integral = 0.0f,
@@ -818,6 +818,18 @@ void StartTask02(void *argument)
       // ---------------------------------------------------------
       uint16_t current_count = __HAL_TIM_GET_COUNTER(&htim1);
       int16_t diff = (int16_t)(current_count - last_encoder_count);
+      // 카운터가 65535 -> 0으로 넘어가도 unsigned 뺄셈 후 int16_t 캐스팅이 자동으로
+      // 올바른 부호 있는 변화량을 만들어냄
+      //
+      // TIM1 엔코더 카운터는 하드웨어적으로 16비트(0~63335 순환)라서,
+      // 뺼셈 결과를 정확히 16비트로 해석해야 랩어라운드가 자동 처리됨
+      // 예를 들면, 바퀴 +6틱, 카운터 한 바퀴 돈 경우:
+      // last = 65533, current = 3
+      // 3 - 65535 = -65530 -> 16비트로 자르면 6 -> int16_t로 읽으면 +6
+      // 만약 여기에서 int로 계산하면 -65530이라는 엉뚱한 값이 나옴
+      // 그런데 이 차는 10ms에 수십 틱 수준이라 여유가 수백배임.
+      // 정리하면, int는 플랫폼 의존 크기, int16_t는 표준이 보장하는 정확히 16비트
+
       current_speed_rpm = diff;
       last_encoder_count = current_count;
 
