@@ -227,7 +227,7 @@ private:
     // 반환: true면 line에 한 줄이 들어감, false면 아직 완성된 줄 없음
     bool popLine(char* line, int max_len){
         int pos = tail;
-        int count = 0;
+        // int count = 0;
 
         // '\n' 찾기
         while(pos != head){
@@ -243,12 +243,19 @@ private:
                 }
                 line[i] = '\0';
 
+                // 7/23 추가
+                // 줄이 max_len보다 길어 잘렸다면, 남은 조각을 개행 직전까지 전부 버린다
+                // (안 버리면 다음 호출에서 잔여물이 "유령 줄"로 반환됨)
+                while(tail != pos){
+                    tail = (tail + 1) % BUF_SIZE;
+                }
+
                 // '\n' 자체도 소비
                 tail = (tail + 1) % BUF_SIZE;
                 return true;
             }
             pos = (pos+1) % BUF_SIZE;
-            count++;
+            // count++;
         }
         return false;  // 아직 '\n'이 안 옴
     }
