@@ -29,7 +29,7 @@ Phase 2와 3 사이의 **전환점** — 필드 테스트 중 발생한 하드�
 | **1** | [단일 Linux 제어](https://steppenhj.github.io/#phase1) | 단일 RPi 보드에서 Python ↔ C++ IPC 구현 | ✅ 완료 |
 | **2** | [STM32 분산 아키텍처](https://steppenhj.github.io/#phase2) | Linux의 Hard Real-Time 불가 → Brain(RPi) / Reflex(MCU)로 분리 | ✅ 완료 |
 | ⚠️ | [**전환점 — 운용 중 장애 발생**](https://steppenhj.github.io/#turning_point) | 필드 테스트 중 7.4V 배터리 선이 RPi 3.3V GPIO에 접촉 → 전체 아키텍처 전면 재설계 | — |
-| **3** | [RTOS 및 Interrupt 기반 제어](https://steppenhj.github.io/#phase3) | Bare-metal Polling의 100Hz 데드라인 미달 → FreeRTOS + ISR + Queue, 2-DOF PID | ✅ 완료 |
+| **3** | [RTOS 및 Interrupt 기반 제어](https://steppenhj.github.io/#phase3) | Bare-metal Polling의 100Hz 데드라인 미달 → FreeRTOS + ISR + Queue, P 제어 + Feedforward | ✅ 완료 |
 | **4** | [Return-to-Home 안전 시스템](https://steppenhj.github.io/#phase4) | Watchdog과 자율 동작의 충돌 → Keep-Alive 패턴, 8B → 12B 프로토콜 확장 | ✅ 완료 |
 | **5** | [OTA Firmware 업데이트](https://steppenhj.github.io/#phase5) | 물리적 재플래싱 부담 → 커스텀 Bootloader, CRC 핸드셰이크, 섹터 관리 | ✅ 완료 |
 | **6** | [CAN Bus 및 Multi-ECU](https://steppenhj.github.io/#phase6) | 단일 UART 병목 → 3노드 CAN 2.0 분산 제어 | 🔀 [multi-mcu-can](https://github.com/steppenhj/multi-mcu-can)으로 이전 |
