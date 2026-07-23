@@ -1,7 +1,13 @@
 /* USER CODE BEGIN Header */
 /**
-  * @brief          : 인터럽트해보자.
-  * @note           :
+  * @brief  Neuro-Drive MCU 펌웨어: UART 명령 수신 -> 모터/서보 제어 + 안전 감시
+  * @note   태스크 구성 (우선순위: 안전 > 제어 > 통신)
+  *         - UART ISR  : 1바이트 수신, 줄 조립, 큐 투입 [이벤트]
+  *         - Task_Motor(H) : 큐 소비 -> FF+FB 제어 -> PWM [100Hz]
+  *         - Task_Comm(N)  : ENC 텔레메트리, PONG (huart2 TX 전용) [100Hz]
+  *         - Task_Safety(RT) : 500ms 명령 타임아웃 감시, 최악 지연 ~550ms [20Hz]
+  * @note   클럭: HSI 16MHz / 8 * 100 /2 = 100MHz (FLASH 3WS)
+  *         APB1=50MHz지만 타이머 클럭은 x2 규칙으로 100MHz
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
@@ -85,6 +91,10 @@ const osThreadAttr_t Task_Safety_attributes = {
 };
 /* USER CODE BEGIN PV */
 // 태스크 간 공유 변수 (volatile 필수)
+// mutex 없이 volatile로 충분한 근거:
+// (1) 각 변수의 쓰는 쪽이 하나뿐 (last_command_time=ISR, current_speed_rpm=Task_Motor)
+// (2) Cortex-M4에서 정렬된 32비트 이하 접근은 원자적 -> 찢어진 값 불가
+// volatile의 역할은 "컴파일러가 레지스터에 캐시해두고 안 읽는 것"을 막는 것
 volatile int speed_cmd = 0;
 volatile int angle_us = SERVO_CENTER_US;
 volatile uint32_t last_command_time = 0;
@@ -301,7 +311,9 @@ static void MX_TIM1_Init(void)
   TIM_MasterConfigTypeDef sMasterConfig = {0};
 
   /* USER CODE BEGIN TIM1_Init 1 */
-
+  // 엔코더 모드 TI12 = A/B 양 채널 엣지 모두 카운트(4체배).
+  // 90도 위상차로 방향까지 하드웨어가 판별 -> CPU 개입 없음
+  // 16비트 프리러닝 카운터: 넘침은 Task_Motor에서 int16_t 캐스팅으로 처리
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 0;
@@ -346,13 +358,15 @@ static void MX_TIM2_Init(void)
   /* USER CODE BEGIN TIM2_Init 0 */
 
   /* USER CODE END TIM2_Init 0 */
-
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
 
   /* USER CODE BEGIN TIM2_Init 1 */
-
+  // DC모터 PWM: 100MHz/1400/1000 = 71.4Hz, 듀티 0~999
+  // Period 999가 상위 계층 계약의 근원 (C++의 throttle*999)
+  // 71Hz는 낮은 편 -> 소음/전류리플 관점에선 kHz대로 올리는 게 개선 방향
   /* USER CODE END TIM2_Init 1 */
+
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 1399;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
@@ -396,11 +410,14 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 0 */
 
+
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
 
   /* USER CODE BEGIN TIM3_Init 1 */
-
+  // 서보 PWM: 100MHz/100 = 1MHz -> 1틱 = 1us, 20000틱 = 20ms(50Hz)
+  // 프리스케일러를 이렇게 고르면 compare 값 = 펄스폭(us) 그대로
+  // (SERVO_MIN 650 = 650us) -> 단위변환 코드가 사라짐
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 99;
@@ -440,9 +457,9 @@ static void MX_TIM3_Init(void)
   */
 static void MX_USART2_UART_Init(void)
 {
-
   /* USER CODE BEGIN USART2_Init 0 */
-
+  // 115200 8N1 : 1프레임 10비트 -> 1바이트 = 약 87us
+  // 이 간격이 "1바이트 인터럽트 방식"이 감당 가능한 근거
   /* USER CODE END USART2_Init 0 */
 
   /* USER CODE BEGIN USART2_Init 1 */
@@ -505,7 +522,7 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-// ★ [필수 추가] printf를 UART로 쏘기 위한 함수
+// [필수 추가] printf를 UART로 쏘기 위한 함수
 #ifdef __GNUC__
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 #else
@@ -519,6 +536,10 @@ PUTCHAR_PROTOTYPE
 }
 
 // PID함수
+// 7/23 
+// PID (현재 kp=3.0, ki=kd=0 -> 실질적으론 P 제어임 => 솔직하게 이 부분은 너무 어렵다)
+// dt=0.01f 하드코딩: Task_Motor가 osDelayUntil로 100Hz 고정이라 가능
+// 한계: anti-windup이 출력 클램프 방식뿐 (ki 사용 시 적분항 별도 클램프 필요)
 float PID_Calculate(PID_t *pid, float error){
 	// P항: 지금 오차에 비례
 	float p = pid->kp * error;
@@ -533,7 +554,7 @@ float PID_Calculate(PID_t *pid, float error){
 
 	float output = p + i + d;
 
-	// 출력 범위 제한 (Antil-windup)
+	// 출력 범위 제한 (Anti-windup)
 	if(output > pid->output_max) output = pid->output_max;
 	if(output < pid->output_min) output = pid->output_min;
 
@@ -572,7 +593,9 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		//디버깅. 인터럽트가 지금 잘 안되는 중.
 		// 일단 데이터 오는지 확인해야 하니깐 데이터 오면 무조건 깜빡이기
 		HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-
+    // 7/23 위 내용은 다 해결되었지만 디버깅 흔적 남겨두기
+    // static인 이유: ISR 호출 사이에 "조립 중인 줄"의 상태를 보존해야 함
+    // (1바이트마다 호출되므로 지역변수면 매번 초기화되어 줄 조립 불가)
 		static uint8_t buffer[64]; //static으로 선언했다-> 함수가 끝나도 값이 유지돼야 함
 		static uint8_t buf_index = 0;
 
@@ -611,6 +634,9 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 				int temp_speed = 0;
 				int temp_angle = 1500;
 
+        // 7/23 아래 내용 개선 여지 작성
+        // 개선 여지: sscanf는 무거워서 ISR 최소화 원칙에 어긋남
+        // (PONG을 태스크로 옮긴 것과 같은 원칙 -> 줄 단위로 큐에 넘기고 파싱은 태스크에서)
 				//파싱 성공하면 큐에 넣음
 				if(sscanf((char*)buffer, "%d,%d", &temp_speed, &temp_angle) == 2)
 				{
@@ -637,6 +663,9 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		}
 
 		// 다음 인터럽트 장전
+    // 7/23 추가설명 아래에 붙임
+    // 재장전 필수: 빼먹으면 수신이 영구 정지
+    // 노이즈 에러로 여기 못 와도 ErrorCallback이 재장전해주는 이중 보험
 		HAL_UART_Receive_IT(&huart2, &rx_data, 1);
 	}
 }
@@ -677,6 +706,10 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
+    // 7/23
+    // huart2 TX는 이 태스크(Task_Comm)가 단독 소유 (ENC + PONG 모두 여기서만 송신)
+    // -> ISR에서 PONG으로 옮겨온 이유이자, TX 경쟁이 구조적으로 없는 근거
+
     //4/24 PING 요청이 들어와 있으면 PONG 응답
     // ISR 대신 Task에서 송신하여 huart2 Race Condition 방지
     if(ping_received)
@@ -821,11 +854,11 @@ void StartTask02(void *argument)
       // 카운터가 65535 -> 0으로 넘어가도 unsigned 뺄셈 후 int16_t 캐스팅이 자동으로
       // 올바른 부호 있는 변화량을 만들어냄
       //
-      // TIM1 엔코더 카운터는 하드웨어적으로 16비트(0~63335 순환)라서,
-      // 뺼셈 결과를 정확히 16비트로 해석해야 랩어라운드가 자동 처리됨
+      // TIM1 엔코더 카운터는 하드웨어적으로 16비트(0~65535 순환)라서,
+      // 뺄셈 결과를 정확히 16비트로 해석해야 랩어라운드가 자동 처리됨
       // 예를 들면, 바퀴 +6틱, 카운터 한 바퀴 돈 경우:
       // last = 65533, current = 3
-      // 3 - 65535 = -65530 -> 16비트로 자르면 6 -> int16_t로 읽으면 +6
+      // 3 - 65533 = -65530 -> 16비트로 자르면 6 -> int16_t로 읽으면 +6
       // 만약 여기에서 int로 계산하면 -65530이라는 엉뚱한 값이 나옴
       // 그런데 이 차는 10ms에 수십 틱 수준이라 여유가 수백배임.
       // 정리하면, int는 플랫폼 의존 크기, int16_t는 표준이 보장하는 정확히 16비트
@@ -846,6 +879,10 @@ void StartTask02(void *argument)
 
       // (3) 데이터 수신 및 처리 (순서 수정됨)
       // 먼저 큐를 확인
+      // 7/23 아래 
+      // 타임아웃 0 = 논블로킹: 새 명령 없으면 "직전 목표를 유지"한 채 제어 계속
+      // -> 통신이 끊겨도 모터는 마지막 명령으로 계속 달린다는 뜻
+      // -> 이게 Task_Safety(워치독)가 반드시 필요한 이유
       osStatus_t status = osMessageQueueGet(myQueueHandle, &rcv_msg, NULL, 0);
 
       // 데이터가 "있으면" (osOK)
@@ -864,7 +901,7 @@ void StartTask02(void *argument)
 //    	  pwm_output = current_speed;
 //    	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, pwm_output);
 //
-//          // 2. ★ 로그 출력 (명령 받았을 때만 찍힘)
+//          // 2.  로그 출력 (명령 받았을 때만 찍힘)
 //          printf("CMD_RECV: Speed=%d, Angle=%d\r\n", current_speed, current_angle);
       }
 
@@ -923,6 +960,9 @@ void StartTask02(void *argument)
     	  led_counter = 0;
       }
       // 주기 제어 (100Hz)
+      // 7/23 아래 주석 추가
+      // osDelayUntil = 절대 시각 기준이라 작업 시간과 무관하게 드리프트 없음
+      // (osDelay였으면 "작업시간+10ms"로 주기가 계속 밀림. C++의 sleep_until과 동일 사상)
       last_wake_time = current_time;
       osDelayUntil(last_wake_time + 10);
   }
@@ -943,6 +983,10 @@ void StartTask03(void *argument)
   for(;;)
   {
     // 500ms 동안 명령 없으면 정지
+    // 7/23 아래 주석 추가
+    // 워치독: 500ms 타임아웃 + 50ms 감시 주기 -> 최악 반응 지연 ~550ms
+    // 이중 조치: (1) 큐로 정식 정지(서보 중립 포함) (2) 레지스터 직접 차단(즉시)
+    // 우선순위 Realtime = 안전 감시는 어떤 작업에도 선점당하지 않는다
     if (HAL_GetTick() - last_command_time > 500)
     {
 //        speed_cmd = 0; // 다음 루프에서 모터 태스크가 멈추게 함
