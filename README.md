@@ -251,4 +251,3 @@ python3 ota_flasher.py parkhaejin_car.bin
 ## 작성자
 
 **박해진 (Haejin Park)**  
-경북대학교
