@@ -114,6 +114,7 @@ int main(void)
 //pwm 타이머 시작
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); // Servo
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3); // Dc Motor
+  // 7/26 여긴 괜찮은데 freertos.c를 봐야한다. 거기에서 서보 관련 문제의 원인이 있다
 
   //엔코더 시작
   HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);

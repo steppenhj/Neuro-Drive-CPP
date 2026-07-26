@@ -230,6 +230,8 @@ void StartTask02(void *argument)
 		  HAL_GPIO_WritePin(MOTOR_IN1_GPIO_Port, MOTOR_IN1_Pin, GPIO_PIN_SET);
 		  HAL_GPIO_WritePin(MOTOR_IN2_GPIO_Port, MOTOR_IN2_Pin, GPIO_PIN_RESET);
 		  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, (uint32_t)final_pwm);
+      // 7/26 이게 문제이다
+      // htim3 가 아니라 htim2 가 맞아. PB0에 서보
 	  }
 	  else if(final_pwm < 0)
       {
